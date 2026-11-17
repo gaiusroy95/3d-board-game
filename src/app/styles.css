@@ -1,0 +1,252 @@
+:root {
+  color-scheme: dark;
+  --bg: #050505;
+  --panel: #141414;
+  --text: #f2f2f2;
+  --muted: #a8a8a8;
+  --border: #2a2a2a;
+  --danger: #c44;
+  font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+  line-height: 1.45;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+  background: var(--bg);
+  color: var(--text);
+}
+
+body {
+  min-height: 100vh;
+}
+
+.app-shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+}
+
+.app-header,
+.app-footer {
+  padding: 0.75rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.app-footer {
+  border-bottom: none;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.app-header h1 {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.app-subtitle {
+  margin: 0.15rem 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.hud-chip {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  padding: 0.4rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+.app-main {
+  min-height: 0;
+  display: grid;
+  place-items: stretch;
+  padding: 0;
+}
+
+.state-panel {
+  margin: auto;
+  width: min(40rem, calc(100% - 2rem));
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1.25rem 1.5rem;
+}
+
+.state-panel h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.1rem;
+}
+
+.state-panel p {
+  color: var(--muted);
+}
+
+.state-error {
+  border-color: var(--danger);
+}
+
+.state-error h2 {
+  color: var(--danger);
+}
+
+.viewport-wrap {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-height: 0;
+  height: 100%;
+}
+
+.match-hud {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.65rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  background: #0c0c0c;
+}
+
+.hud-row,
+.hud-actions,
+.modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem 0.85rem;
+}
+
+.hud-button {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: #1c1c1c;
+  color: var(--text);
+  border-radius: 6px;
+  padding: 0.4rem 0.75rem;
+  cursor: pointer;
+  font: inherit;
+}
+
+.hud-button:hover:not(:disabled) {
+  border-color: #666;
+}
+
+.hud-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.hud-button.ghost {
+  background: transparent;
+}
+
+.score-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.4rem;
+}
+
+.score-list li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.85rem;
+}
+
+.score-list li.is-active {
+  border-color: #888;
+  background: #1a1a1a;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.hud-status {
+  margin: 0;
+  font-size: 0.88rem;
+  color: #d0d0d0;
+}
+
+.game-viewport {
+  position: relative;
+  min-height: 360px;
+  height: calc(100vh - 14rem);
+  background: #050505;
+  overflow: hidden;
+}
+
+.game-viewport canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.side-notes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.5rem;
+  padding: 0.65rem 1.25rem;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.85rem;
+  background: #0a0a0a;
+}
+
+.side-notes p {
+  margin: 0;
+}
+
+.modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: grid;
+  place-items: center;
+  z-index: 20;
+  padding: 1rem;
+}
+
+.modal-panel {
+  width: min(26rem, 100%);
+  background: #141414;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem 1.15rem;
+}
+
+.modal-panel h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.05rem;
+}
+
+.modal-panel p {
+  margin: 0 0 0.55rem;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+@media (max-width: 900px) {
+  .score-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

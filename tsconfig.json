@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "exactOptionalPropertyTypes": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "forceConsistentCasingInFileNames": true,
+    "types": ["vite/client"],
+    "paths": {
+      "@domain/*": ["./src/domain/*"],
+      "@app/*": ["./src/app/*"],
+      "@render/*": ["./src/render/*"],
+      "@interfaces/*": ["./src/interfaces/*"]
+    },
+    "noEmit": true
+  },
+  "include": ["src/app", "src/domain", "src/render", "src/interfaces", "tests", "vite.config.ts", "vitest.config.ts"],
+  "exclude": ["node_modules", "dist", "dist-electron", "release", "src/desktop"]
+}
