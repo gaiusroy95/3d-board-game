@@ -31,9 +31,9 @@ export function FigurineActivateModal({
         aria-labelledby="figurine-activate-title"
         onClick={(event) => event.stopPropagation()}
       >
-        <h2 id="figurine-activate-title">Activate figurine</h2>
+        <h2 id="figurine-activate-title">Figurine {popup.slotIndex + 1}</h2>
         <p>
-          {popup.ownerId} · figurine {popup.slotIndex + 1}. Figurines are activated, not moved.
+          {popup.ownerId} — activated, never moved. Choose one skill to learn, then use it.
         </p>
         <p className="muted">
           Learn {cfg.learnCost} · Activate {cfg.activateCost}. Unlock: {cfg.unlockSummary}

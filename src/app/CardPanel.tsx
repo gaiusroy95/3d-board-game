@@ -34,6 +34,7 @@ export function CardPanel({ match, selectedCell, onMatchChange }: CardPanelProps
   return (
     <section className="side-panel card-panel" aria-label="Special cards">
       <h3>Special decks</h3>
+      <p className="muted tiny">Buy from the shared street decks. Play up to 4 per turn.</p>
       <div className="deck-row">
         {([1, 2, 3] as DeckId[]).map((deckId) => (
           <button

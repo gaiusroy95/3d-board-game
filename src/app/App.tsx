@@ -56,7 +56,7 @@ export function App() {
         setUi({
           ...initialMatchUiState,
           statusMessage:
-            "M2: Build pays cost → Bank. End turn pays Normal/Extra returns. Decks & loans in side panels.",
+            "The table is open. Select a cell, Build, then End turn for Normal/Extra returns.",
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown startup error";
@@ -68,6 +68,12 @@ export function App() {
   }, []);
 
   const bridge = typeof window !== "undefined" ? window.desktopBridge : undefined;
+  const active =
+    loadState.status === "ready"
+      ? loadState.match.players.find(
+          (p) => p.id === getActivePlayerId(loadState.match),
+        )
+      : null;
 
   const applyMatch = (match: MatchState, note: string) => {
     setLoadState({ status: "ready", match });
@@ -113,7 +119,7 @@ export function App() {
         ownerId: pick.ownerId,
         position: { column: pick.column, level: pick.level },
       },
-      statusMessage: `Selected ${pick.ownerId} ${pick.column} L${pick.level}`,
+      statusMessage: `Selected ${pick.ownerId} · ${pick.column} · L${pick.level}`,
     }));
   };
 
@@ -125,7 +131,7 @@ export function App() {
     setLoadState({ status: "ready", match: next });
     setUi((prev) => ({
       ...prev,
-      statusMessage: `${payoutNote} Turn → ${getActivePlayerId(next)} · L${next.levelTurn.activeLevel}`,
+      statusMessage: `${payoutNote} Next: ${getActivePlayerId(next)} · L${next.levelTurn.activeLevel}`,
       figurinePopup: null,
     }));
     setOutcomeBanner(outcomeNote);
@@ -138,7 +144,7 @@ export function App() {
     if (!ui.selectedCell) {
       setUi((prev) => ({
         ...prev,
-        statusMessage: "Select a cell before Build.",
+        statusMessage: "Select a cell on the table before Build.",
       }));
       return;
     }
@@ -227,22 +233,44 @@ export function App() {
   return (
     <div className="app-shell">
       <header className="app-header">
-        <div>
-          <h1>{M2Assumptions.gameTitle}</h1>
-          <p className="app-subtitle">Milestone 2 — core gameplay</p>
+        <div className="brand-block">
+          <p className="brand-kicker">Four-player street legend</p>
+          <h1>
+            Back in <span className="brand-mark">century 20</span>
+          </h1>
+          <p className="app-subtitle">
+            Four boards. One dark table. Build the street, work the bank, and outplay the
+            others before the century turns.
+          </p>
         </div>
+        {loadState.status === "ready" && (
+          <div className="header-meta">
+            <div className="turn-pill" aria-live="polite">
+              <span>Level</span>
+              <strong>L{loadState.match.levelTurn.activeLevel}</strong>
+              <span>· {active?.displayName ?? "—"}</span>
+            </div>
+            <div className="bank-chip">
+              Bank vault <strong>{loadState.match.bankBalance}</strong>
+            </div>
+          </div>
+        )}
       </header>
 
       <main className="app-main" aria-live="polite">
         {loadState.status === "loading" && (
           <section className="state-panel state-loading">
-            <p>Loading table…</p>
+            <h2>Opening the table</h2>
+            <p>Dealing boards under the street lamps…</p>
+            <div className="loader-bar" aria-hidden="true">
+              <span />
+            </div>
           </section>
         )}
 
         {loadState.status === "empty" && (
           <section className="state-panel state-empty">
-            <h2>Empty match state</h2>
+            <h2>Empty match</h2>
             <p>{loadState.message}</p>
           </section>
         )}
@@ -261,42 +289,43 @@ export function App() {
                 {outcomeBanner}
               </div>
             )}
-            <MatchHud
-              match={loadState.match}
-              selectedCell={ui.selectedCell}
-              statusMessage={ui.statusMessage}
-              onEndTurn={onEndTurn}
-              onBuild={onBuild}
-              onDestroy={onDestroy}
-              onActivateFigurineDemo={onActivateFigurineDemo}
-              onUnlockFigurine={onUnlockFigurine}
-              onBuildBorrow={onBuildBorrow}
-            />
             <div className="play-layout">
-              <GameViewport
-                match={loadState.match}
-                selection={ui.selectedCell}
-                onPick={onPick}
-              />
-              <div className="side-stack">
+              <div className="stage-column">
+                <MatchHud
+                  match={loadState.match}
+                  selectedCell={ui.selectedCell}
+                  statusMessage={ui.statusMessage}
+                  onEndTurn={onEndTurn}
+                  onBuild={onBuild}
+                  onDestroy={onDestroy}
+                  onActivateFigurineDemo={onActivateFigurineDemo}
+                  onUnlockFigurine={onUnlockFigurine}
+                  onBuildBorrow={onBuildBorrow}
+                />
+                <div className="stage-frame">
+                  <GameViewport
+                    match={loadState.match}
+                    selection={ui.selectedCell}
+                    onPick={onPick}
+                  />
+                  <div className="stage-caption">
+                    <strong>The table</strong>
+                    Click a cell to select. Build costs cash into the Bank. End turn pays
+                    returns.
+                  </div>
+                </div>
+              </div>
+              <aside className="side-stack" aria-label="Street ledger">
+                <p className="ledger-title">Street ledger</p>
+                <p className="ledger-sub">Cards · loans · permits</p>
                 <CardPanel
                   match={loadState.match}
                   selectedCell={ui.selectedCell}
                   onMatchChange={applyMatch}
                 />
                 <LoanPanel match={loadState.match} onMatchChange={applyMatch} />
-              </div>
+              </aside>
             </div>
-            <aside className="side-notes">
-              <p>
-                End turn: figurine having reward → Normal/Extra level returns → next
-                player+level together. Builds persist and cost cash immediately.
-              </p>
-              <p>
-                Opponent builds need a permit card (Deck1 first card) or condition flag.
-                Card list, limit-scheme %, and loan “advantage” terms remain OPEN placeholders.
-              </p>
-            </aside>
             {ui.figurinePopup && (
               <FigurineActivateModal
                 match={loadState.match}
@@ -316,8 +345,8 @@ export function App() {
 
       <footer className="app-footer">
         <span>
-          Desktop bridge:{" "}
-          {bridge ? `${bridge.appPhase} (${bridge.platform})` : "browser-only / unavailable"}
+          Local four-player ·{" "}
+          {bridge ? `Desktop ${bridge.appPhase} (${bridge.platform})` : "browser preview"}
         </span>
       </footer>
     </div>

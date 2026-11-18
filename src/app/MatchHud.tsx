@@ -35,71 +35,63 @@ export function MatchHud({
 
   return (
     <div className="match-hud">
-      <div className="hud-row">
-        <div className="hud-chip" aria-live="polite">
-          Level-turn <strong>L{match.levelTurn.activeLevel}</strong>
-          {" · "}
-          Active: <strong>{active?.displayName ?? activeId}</strong>
-          {" · "}
-          Bank: <strong>{match.bankBalance}</strong>
-        </div>
-        <button type="button" className="hud-button" onClick={onEndTurn}>
+      <ul className="seat-rail" aria-label="Players">
+        {match.players.map((player, index) => (
+          <li
+            key={player.id}
+            data-seat={index}
+            className={`seat${player.id === activeId ? " is-active" : ""}`}
+          >
+            <span className="seat-name">{player.displayName}</span>
+            <div className="seat-stats">
+              <span>
+                <strong>{scoreForPlayer(match, player.id)}</strong> pts
+              </span>
+              <span>
+                <strong>{player.cash}</strong> cash
+              </span>
+              <span>
+                <strong>{player.lives}</strong> lives
+              </span>
+              <span>
+                <strong>{player.ownedFigurines}</strong>/7 fig
+              </span>
+            </div>
+          </li>
+        ))}
+      </ul>
+
+      <div className="action-dock">
+        <button type="button" className="hud-button primary" onClick={onBuild}>
+          Build
+        </button>
+        <button type="button" className="hud-button accent" onClick={onEndTurn}>
           End turn
+        </button>
+        <button
+          type="button"
+          className="hud-button"
+          onClick={onBuildBorrow}
+          title="Borrow build cost; repay 20% each turn"
+        >
+          Build borrow
         </button>
         <button
           type="button"
           className="hud-button"
           onClick={onActivateFigurineDemo}
           disabled={!canDemoFigurine}
-          title="Opens the figurine activation popup for the active player's first owned slot"
         >
           Activate figurine
         </button>
         <button type="button" className="hud-button" onClick={onUnlockFigurine}>
           Unlock figurine
         </button>
-      </div>
-
-      <ul className="score-list">
-        {match.players.map((player) => (
-          <li key={player.id} className={player.id === activeId ? "is-active" : undefined}>
-            <span>{player.displayName}</span>
-            <span>{scoreForPlayer(match, player.id)} pts</span>
-            <span>{player.cash} cash</span>
-            <span className="muted">{player.lives} lives</span>
-            <span className="muted">{player.ownedFigurines}/7 fig</span>
-          </li>
-        ))}
-      </ul>
-
-      <div className="hud-actions">
-        <button
-          type="button"
-          className="hud-button"
-          onClick={onBuild}
-          title="Pays cost table into Bank immediately"
-        >
-          Build
-        </button>
-        <button
-          type="button"
-          className="hud-button"
-          onClick={onDestroy}
-          disabled
-          title="Client: Destroy is not a player button"
-        >
+        <button type="button" className="hud-button ghost" onClick={onDestroy} disabled>
           Destroy
         </button>
-        <button
-          type="button"
-          className="hud-button"
-          onClick={onBuildBorrow}
-          title="Borrow build cost; repay 20% of cost each turn (shared cap 3/5/7)"
-        >
-          Build borrow
-        </button>
-        <span className="muted">
-          Selected: {selectedCell ? describeCell(selectedCell) : "none"}
+        <span className="selection-chip">
+          {selectedCell ? describeCell(selectedCell) : "Select a cell on the table"}
         </span>
       </div>
 

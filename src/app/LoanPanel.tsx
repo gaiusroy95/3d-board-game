@@ -20,8 +20,8 @@ export function LoanPanel({ match, onMatchChange }: LoanPanelProps) {
 
   return (
     <section className="side-panel loan-panel" aria-label="Bank loans">
-      <h3>Bank loans</h3>
-      <p className="muted tiny">Only 1 borrow from Bank per player.</p>
+      <h3>Bank &amp; borrows</h3>
+      <p className="muted tiny">One Bank borrow per player. Player loans &amp; board permits below.</p>
       <p className="muted tiny">
         Non-bank: {cap.used}/{cap.max} · default +{cap.defaultRate}%
         {cap.lowerRate != null
