@@ -15,6 +15,7 @@ import {
   type MatchCardsState,
   type PlayerHandCard,
 } from "./state";
+import { recordSpecialCardPlayed } from "../objectives";
 import { applyColumnHammer, applyColumnMaster } from "./columnEffects";
 
 export type { MatchCardsState, PlayerHandCard } from "./state";
@@ -269,9 +270,10 @@ export function playSpecialCard(
   const applied = applyInstantEffect(counted, playerId, def.effect, def.name);
   if (!applied.ok) return applied;
 
+  const withStats = recordSpecialCardPlayed(applied.state, playerId);
   return {
     ok: true,
-    state: applied.state,
+    state: withStats,
     note: `Played ${def.name}. ${applied.note}`,
   };
 }

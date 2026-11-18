@@ -6,6 +6,7 @@ import {
   type PlayerId,
 } from "../board";
 import { bankReceivePayment, bankPayToPlayer } from "../bank";
+import { syncKnockoutsFromLives } from "../objectives";
 import { getBuildCost, getBuildMoneyPayout } from "../economy";
 import { getPlayer, replacePlayerBoard, type MatchState } from "../match";
 
@@ -178,6 +179,7 @@ export function applyColumnHammer(
       ),
     };
     next = bankReceivePayment(next, cost);
+    next = syncKnockoutsFromLives(next);
     note += ` Under level 0: ${targetOwnerId} loses 1 life and pays ${cost} to Bank (L1×${depth}).`;
   }
 

@@ -10,6 +10,7 @@ import {
 import { bankPayToPlayer } from "./bank";
 import { getBuildMoneyPayout } from "./economy";
 import type { MatchState } from "./match";
+import { recordColumnLevelPayout } from "./objectives";
 
 export interface PayoutLine {
   readonly playerId: PlayerId;
@@ -100,6 +101,12 @@ export function returnMoneyForActiveLevel(
     next = result.state;
     totalPaid += result.paid;
     totalShortfall += result.shortfall;
+  }
+
+  // Objective race counters: each payout line that paid > 0 counts as one "money out"
+  for (const line of lines) {
+    if (line.amount <= 0) continue;
+    next = recordColumnLevelPayout(next, line.playerId, line.column, line.level);
   }
 
   const normalCount = lines.filter((l) => l.kind === "normal").length;

@@ -6,6 +6,10 @@ import {
   getActivePlayerId,
   type MatchState,
 } from "./match";
+import {
+  evaluateAllObjectives,
+  tickObjectiveSelectWindow,
+} from "./objectives";
 import { evaluateMatchOutcomes } from "./winLose";
 
 export interface EndTurnResult {
@@ -21,7 +25,8 @@ export interface EndTurnResult {
  * 3) Tick blocked-cell auto-unblock
  * 4) Normal + Extra returns for active level
  * 5) Advance player+level
- * 6) Evaluate win/lose
+ * 6) Tick objective select window + auto-claim objectives
+ * 7) Evaluate win/lose
  */
 export function endTurnWithPayout(state: MatchState): EndTurnResult {
   const activeId = getActivePlayerId(state);
@@ -35,11 +40,17 @@ export function endTurnWithPayout(state: MatchState): EndTurnResult {
     unblocked,
     state.levelTurn.activeLevel,
   );
-  const next = advanceTurn(payout.state);
+  let next = advanceTurn(payout.state);
+  next = tickObjectiveSelectWindow(next);
+  const objectives = evaluateAllObjectives(next);
+  next = objectives.state;
   const outcomes = evaluateMatchOutcomes(next);
+  const objectiveNote = objectives.notes.length
+    ? ` Objectives: ${objectives.notes.join(" ")}`
+    : "";
   return {
     state: next,
-    payoutNote: `${havingNote} ${borrows.note} ${payout.note}`,
+    payoutNote: `${havingNote} ${borrows.note} ${payout.note}${objectiveNote}`,
     outcomeNote: outcomes.note,
   };
 }

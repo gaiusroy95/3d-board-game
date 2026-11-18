@@ -15,6 +15,13 @@ import {
   createInitialCardsState,
   type MatchCardsState,
 } from "./cards/state";
+import {
+  createInitialObjectivesState,
+  emptyObjectiveStats,
+  type MatchObjectivesState,
+  type PlayerObjectiveStats,
+  type RaceObjectiveId,
+} from "./objectiveTypes";
 import { milestone2RulesConfig, type GameRulesConfig } from "./rulesConfig";
 import { scorePlayerTotal } from "./scoring";
 
@@ -82,6 +89,11 @@ export interface PlayerMatchState {
   readonly figurine2SkillUses: number;
   /** Offers of player-borrow this player accepted as lender (figurine 4). */
   readonly playerBorrowOffersAccepted: number;
+  /** Points earned from objectives (+5 each). */
+  readonly objectivePoints: number;
+  /** Up to 4 of 7 race objectives. */
+  readonly selectedRaceObjectives: readonly RaceObjectiveId[];
+  readonly objectiveStats: PlayerObjectiveStats;
 }
 
 export interface LevelTurnState {
@@ -119,6 +131,7 @@ export interface MatchState {
     readonly multiplier: number;
     readonly expiresAfterTurnOf: PlayerId;
   } | null;
+  readonly objectives: MatchObjectivesState;
 }
 
 export function createFourPlayerMatch(input: {
@@ -162,6 +175,9 @@ export function createFourPlayerMatch(input: {
       livesGainedExtra: 0,
       figurine2SkillUses: 0,
       playerBorrowOffersAccepted: 0,
+      objectivePoints: 0,
+      selectedRaceObjectives: [],
+      objectiveStats: emptyObjectiveStats(),
     };
   });
 
@@ -186,6 +202,7 @@ export function createFourPlayerMatch(input: {
     boardBuildAdvantages: [],
     blockedCells: {},
     overLevel5BonusActive: null,
+    objectives: createInitialObjectivesState(),
   };
 }
 
@@ -207,7 +224,9 @@ export function getActivePlayerId(state: MatchState): PlayerId {
 
 export function scoreForPlayer(state: MatchState, playerId: PlayerId): number {
   const player = getPlayer(state, playerId);
-  return scorePlayerTotal(player.board, player.ownedFigurines);
+  return (
+    scorePlayerTotal(player.board, player.ownedFigurines) + player.objectivePoints
+  );
 }
 
 /**

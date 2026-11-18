@@ -3,6 +3,7 @@ import { payBuildCost } from "./bank";
 import { cellKey, type BoardPosition, type PlayerId } from "./board";
 import { registerBoardBuildAdvantage } from "./borrows";
 import { getPlayer, replacePlayerBoard, type MatchState } from "./match";
+import { recordBuildPlaced } from "./objectives";
 
 /**
  * Build / destroy / opponent-board access.
@@ -135,6 +136,8 @@ export function applyBoardInteraction(
       request.position,
     );
   }
+
+  next = recordBuildPlaced(next, request.actorId);
 
   const where =
     kind === "own-board"

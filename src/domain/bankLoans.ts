@@ -1,6 +1,7 @@
 import { bankPayToPlayer, bankReceivePayment } from "./bank";
 import type { PlayerId } from "./board";
 import { getPlayer, type ActiveLoan, type MatchState } from "./match";
+import { recordMoneyFromBorrows } from "./objectives";
 
 export type { ActiveLoan };
 
@@ -211,7 +212,7 @@ export function takeLoan(
 
   return {
     ok: true,
-    state: next,
+    state: recordMoneyFromBorrows(next, playerId, offer.principal),
     note: `Borrowed ${offer.principal} from Bank (button ${button}); repay ${repaymentDue}. (1 bank borrow used.)`,
   };
 }

@@ -14,6 +14,7 @@ import type {
 } from "./borrowTypes";
 import { getBuildCost, getBuildMoneyPayout } from "./economy";
 import { getPlayer, type MatchState } from "./match";
+import { recordMoneyFromBorrows } from "./objectives";
 
 export type {
   BoardBuildAdvantage,
@@ -112,15 +113,16 @@ export function takeBuildBorrow(
   }
 
   const id = `bb-${state.turnIndex}-${borrowerId}-${state.buildBorrows.length}`;
+  const withDebt = {
+    ...paid.state,
+    buildBorrows: [
+      ...state.buildBorrows,
+      { id, borrowerId, position, buildCost: cost, paid: 0 },
+    ],
+  };
   return {
     ok: true,
-    state: {
-      ...paid.state,
-      buildBorrows: [
-        ...state.buildBorrows,
-        { id, borrowerId, position, buildCost: cost, paid: 0 },
-      ],
-    },
+    state: recordMoneyFromBorrows(withDebt, borrowerId, paid.paid),
     note: `Build borrow ${cost} for ${position.column} L${position.level} (${cap.nextOrdinal}/${cap.max}). Repay ${M2Assumptions.buildBorrowPercentPerTurn * 100}% of cost each turn.`,
   };
 }
@@ -212,24 +214,25 @@ export function takePlayerBorrow(
   }
 
   const id = `pb-${state.turnIndex}-${borrowerId}-${state.playerBorrows.length}`;
+  const withLoan = {
+    ...next,
+    playerBorrows: [
+      ...state.playerBorrows,
+      {
+        id,
+        borrowerId,
+        lenderId,
+        principal,
+        premiumPercent,
+        deliverAtTurnIndex,
+        borrowOrdinal: cap.nextOrdinal,
+        usedLowerRate: wantLower,
+      },
+    ],
+  };
   return {
     ok: true,
-    state: {
-      ...next,
-      playerBorrows: [
-        ...state.playerBorrows,
-        {
-          id,
-          borrowerId,
-          lenderId,
-          principal,
-          premiumPercent,
-          deliverAtTurnIndex,
-          borrowOrdinal: cap.nextOrdinal,
-          usedLowerRate: wantLower,
-        },
-      ],
-    },
+    state: recordMoneyFromBorrows(withLoan, borrowerId, principal),
     note:
       `Player borrow ${principal} from ${lenderId} at +${premiumPercent}%` +
       (wantLower ? ` (paid ${unlockFee} for lower rate)` : ` (default rate)`) +

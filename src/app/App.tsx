@@ -11,11 +11,13 @@ import {
 } from "@domain/match";
 import { endTurnWithPayout } from "@domain/turnLifecycle";
 import { evaluateMatchOutcomes } from "@domain/winLose";
+import { evaluateAllObjectives } from "@domain/objectives";
 import { CardPanel } from "./CardPanel";
 import { FigurineActivateModal } from "./FigurineActivateModal";
 import { GameViewport } from "./GameViewport";
 import { LoanPanel } from "./LoanPanel";
 import { MatchHud } from "./MatchHud";
+import { ObjectivesPanel } from "./ObjectivesPanel";
 import {
   initialMatchUiState,
   type MatchUiState,
@@ -76,9 +78,13 @@ export function App() {
       : null;
 
   const applyMatch = (match: MatchState, note: string) => {
-    setLoadState({ status: "ready", match });
-    setUi((prev) => ({ ...prev, statusMessage: note }));
-    const outcomes = evaluateMatchOutcomes(match);
+    const claimed = evaluateAllObjectives(match);
+    const next = claimed.state;
+    const fullNote =
+      claimed.notes.length > 0 ? `${note} ${claimed.notes.join(" ")}` : note;
+    setLoadState({ status: "ready", match: next });
+    setUi((prev) => ({ ...prev, statusMessage: fullNote }));
+    const outcomes = evaluateMatchOutcomes(next);
     const interesting = Object.entries(outcomes.byPlayer).filter(
       ([, o]) => o.status !== "playing",
     );
@@ -317,13 +323,17 @@ export function App() {
               </div>
               <aside className="side-stack" aria-label="Street ledger">
                 <p className="ledger-title">Street ledger</p>
-                <p className="ledger-sub">Cards · loans · permits</p>
+                <p className="ledger-sub">Cards · loans · objectives</p>
                 <CardPanel
                   match={loadState.match}
                   selectedCell={ui.selectedCell}
                   onMatchChange={applyMatch}
                 />
                 <LoanPanel match={loadState.match} onMatchChange={applyMatch} />
+                <ObjectivesPanel
+                  match={loadState.match}
+                  onMatchChange={applyMatch}
+                />
               </aside>
             </div>
             {ui.figurinePopup && (

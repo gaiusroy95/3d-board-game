@@ -2,6 +2,7 @@ import { bankReceivePayment } from "./bank";
 import type { PlayerId } from "./board";
 import { getFigurineConfig } from "./figurineConfig";
 import { getPlayer, type MatchState, type PlayerMatchState } from "./match";
+import { recordSkillLearned } from "./objectives";
 
 export type FigurineSkillId = "skill1" | "skill2";
 
@@ -110,10 +111,11 @@ export function learnFigurineSkill(
   });
 
   const afterPay = bankReceivePayment({ ...state, players: nextPlayers }, cost);
+  const withSkill = recordSkillLearned(afterPay, playerId);
   const cfg = getFigurineConfig(slotIndex);
   return {
     ok: true,
-    state: afterPay,
+    state: withSkill,
     note: `Learned ${skillId} on figurine ${slotIndex + 1} for ${cost}. (${cfg.skillSummaries[skillId === "skill1" ? 0 : 1]})`,
   };
 }
@@ -181,16 +183,15 @@ export function activateFigurineSkill(
     };
   }
 
-  // Figurine 7 skill1: +10 points → grant via temporary Level5-equivalent not available;
-  // track as cash-neutral note; points come from L5/figurines. Store bonus points on player? 
-  // For now: figurine 7 skill1 adds a pseudo "points" by unlocking nothing — use lives/cash paths.
-  // Client: "you get 10 points" — add ownedFigurines points already; we need a pointsBonus field.
-  // Minimal: attach via lives for skill2 (+1 life is reward on unlock). For skill1 +10 pts:
-  // extend scoring later; for M2 store in a simple way — increase a match-side map.
-  // Skip inventing storage: if skill1 on slot 6, note only and leave OPEN for points ledger.
   let noteExtra = "";
   if (slotIndex === 6 && skillId === "skill1") {
-    noteExtra = " +10 points pending points-ledger (OPEN wiring to score).";
+    next = {
+      ...next,
+      players: next.players.map((p) =>
+        p.id === playerId ? { ...p, objectivePoints: p.objectivePoints + 10 } : p,
+      ),
+    };
+    noteExtra = " +10 points.";
   }
   if (slotIndex === 6 && skillId === "skill2") {
     noteExtra = " Force return 50% borrowed cash — select borrower (OPEN target UI).";
