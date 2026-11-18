@@ -10,7 +10,8 @@ import {
 import { bankPayToPlayer } from "./bank";
 import { getBuildMoneyPayout } from "./economy";
 import type { MatchState } from "./match";
-import { recordColumnLevelPayout } from "./objectives";
+import { recordRateSale } from "./bankRecords";
+import { recordColumnLevelPayout, recordMoneyFromRates } from "./objectives";
 
 export interface PayoutLine {
   readonly playerId: PlayerId;
@@ -99,14 +100,24 @@ export function returnMoneyForActiveLevel(
   for (const [playerId, amount] of byPlayer) {
     const result = bankPayToPlayer(next, playerId, amount, "pay-available");
     next = result.state;
+    if (result.paid > 0) {
+      next = recordMoneyFromRates(next, playerId, result.paid);
+    }
     totalPaid += result.paid;
     totalShortfall += result.shortfall;
   }
 
-  // Objective race counters: each payout line that paid > 0 counts as one "money out"
+  // Objective race counters + bank column/level sales records
   for (const line of lines) {
     if (line.amount <= 0) continue;
     next = recordColumnLevelPayout(next, line.playerId, line.column, line.level);
+    next = recordRateSale(
+      next,
+      line.playerId,
+      line.column,
+      line.level,
+      line.amount,
+    );
   }
 
   const normalCount = lines.filter((l) => l.kind === "normal").length;

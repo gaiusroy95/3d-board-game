@@ -137,8 +137,8 @@ export function ObjectivesPanel({ match, onMatchChange }: ObjectivesPanelProps) 
       </ul>
 
       <p className="muted tiny">
-        Progress — builds {active.objectiveStats.buildsPlaced} · skills{" "}
-        {active.objectiveStats.skillsLearned} · specials{" "}
+        Progress — builds {active.objectiveStats.buildsPlaced} · skills used{" "}
+        {active.objectiveStats.skillsUsed} · specials{" "}
         {active.objectiveStats.specialCardsPlayed} · borrow cash{" "}
         {active.objectiveStats.moneyFromBorrows} · skill cash{" "}
         {active.objectiveStats.moneyFromSkills}

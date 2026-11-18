@@ -16,6 +16,10 @@ import {
   type MatchCardsState,
 } from "./cards/state";
 import {
+  emptyBankRecords,
+  type PlayerBankRecords,
+} from "./bankRecordTypes";
+import {
   createInitialObjectivesState,
   emptyObjectiveStats,
   type MatchObjectivesState,
@@ -94,6 +98,8 @@ export interface PlayerMatchState {
   /** Up to 4 of 7 race objectives. */
   readonly selectedRaceObjectives: readonly RaceObjectiveId[];
   readonly objectiveStats: PlayerObjectiveStats;
+  /** Bank loan record lists (column/level sales, builds, recycle). */
+  readonly bankRecords: PlayerBankRecords;
 }
 
 export interface LevelTurnState {
@@ -178,6 +184,7 @@ export function createFourPlayerMatch(input: {
       objectivePoints: 0,
       selectedRaceObjectives: [],
       objectiveStats: emptyObjectiveStats(),
+      bankRecords: emptyBankRecords(),
     };
   });
 

@@ -15,7 +15,14 @@ import {
   type MatchCardsState,
   type PlayerHandCard,
 } from "./state";
-import { recordSpecialCardPlayed } from "../objectives";
+import {
+  recordRecycleRefund,
+  recordSpecialCardSpend,
+} from "../bankRecords";
+import {
+  recordMoneyFromSpecialCards,
+  recordSpecialCardPlayed,
+} from "../objectives";
 import { applyColumnHammer, applyColumnMaster } from "./columnEffects";
 
 export type { MatchCardsState, PlayerHandCard } from "./state";
@@ -100,7 +107,7 @@ export function buyCardFromDeck(
 
   return {
     ok: true,
-    state: withCards(afterPay, cards),
+    state: recordSpecialCardSpend(withCards(afterPay, cards), playerId, price),
     note: `Bought ${cardId} from Deck ${deckId} for ${price}.`,
   };
 }
@@ -120,7 +127,7 @@ function applyInstantEffect(
       const paid = bankPayToPlayer(funded, playerId, effect.amount, "pay-available");
       return {
         ok: true,
-        state: paid.state,
+        state: recordMoneyFromSpecialCards(paid.state, playerId, paid.paid),
         note: `${cardName}: +${paid.paid} cash.`,
       };
     }
@@ -353,14 +360,16 @@ export function recycleCard(
 
   const withHand = withCards(state, cards);
   const paid = bankPayToPlayer(withHand, playerId, refund, "pay-available");
+  let next = {
+    ...paid.state,
+    cards,
+    recycleUses: paid.state.recycleUses + 1,
+  };
+  next = recordRecycleRefund(next, playerId, paid.paid);
 
   return {
     ok: true,
-    state: {
-      ...paid.state,
-      cards,
-      recycleUses: paid.state.recycleUses + 1,
-    },
+    state: next,
     note:
       `Recycled ${card.cardId}; refund ${paid.paid}` +
       (paid.shortfall > 0 ? ` (shortfall ${paid.shortfall})` : "") +

@@ -1,3 +1,4 @@
+import { flushBuildTurnRecord } from "./bankRecords";
 import { processBorrowTurn, tickBlockedCells } from "./borrows";
 import { applyFigurineHavingReward } from "./figurines";
 import { returnMoneyForActiveLevel } from "./levelPayout";
@@ -40,7 +41,9 @@ export function endTurnWithPayout(state: MatchState): EndTurnResult {
     unblocked,
     state.levelTurn.activeLevel,
   );
-  let next = advanceTurn(payout.state);
+  // Client: track max builds per turn for Loan 4, then start next turn clean
+  let next = flushBuildTurnRecord(payout.state, activeId);
+  next = advanceTurn(next);
   next = tickObjectiveSelectWindow(next);
   const objectives = evaluateAllObjectives(next);
   next = objectives.state;

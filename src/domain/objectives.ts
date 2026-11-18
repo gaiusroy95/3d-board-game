@@ -15,16 +15,6 @@ export type ObjectiveActionResult =
   | { readonly ok: true; readonly state: MatchState; readonly note: string }
   | { readonly ok: false; readonly state: MatchState; readonly reason: string };
 
-function countLearnedSkills(state: MatchState, playerId: PlayerId): number {
-  const player = getPlayer(state, playerId);
-  let n = 0;
-  for (const s of player.figurineSkills) {
-    if (s.skill1Learned) n += 1;
-    if (s.skill2Learned) n += 1;
-  }
-  return Math.max(n, player.objectiveStats.skillsLearned);
-}
-
 function raceConditionMet(
   state: MatchState,
   playerId: PlayerId,
@@ -38,7 +28,8 @@ function raceConditionMet(
     case "race-10-builds":
       return s.buildsPlaced >= 10;
     case "race-10-skills":
-      return countLearnedSkills(state, playerId) >= 10;
+      // Client: “10 skills used” (activations), not learned
+      return s.skillsUsed >= 10;
     case "race-20-specials":
       return s.specialCardsPlayed >= 20;
     case "race-7-lives":
@@ -371,6 +362,16 @@ export function recordSkillLearned(
   });
 }
 
+export function recordSkillUsed(
+  state: MatchState,
+  playerId: PlayerId,
+): MatchState {
+  const p = getPlayer(state, playerId);
+  return patchPlayerStats(state, playerId, {
+    skillsUsed: p.objectiveStats.skillsUsed + 1,
+  });
+}
+
 export function recordMoneyFromSkills(
   state: MatchState,
   playerId: PlayerId,
@@ -393,6 +394,50 @@ export function recordMoneyFromBorrows(
   return patchPlayerStats(state, playerId, {
     moneyFromBorrows: p.objectiveStats.moneyFromBorrows + amount,
   });
+}
+
+export function recordMoneyFromRates(
+  state: MatchState,
+  playerId: PlayerId,
+  amount: number,
+): MatchState {
+  if (amount <= 0) return state;
+  const p = getPlayer(state, playerId);
+  return patchPlayerStats(state, playerId, {
+    moneyFromRates: p.objectiveStats.moneyFromRates + amount,
+  });
+}
+
+export function recordMoneyFromSpecialCards(
+  state: MatchState,
+  playerId: PlayerId,
+  amount: number,
+): MatchState {
+  if (amount <= 0) return state;
+  const p = getPlayer(state, playerId);
+  return patchPlayerStats(state, playerId, {
+    moneyFromSpecialCards: p.objectiveStats.moneyFromSpecialCards + amount,
+  });
+}
+
+/** Client: money made by borrow or skills or rate (not special cards). */
+export function moneyMadeWithoutSpecials(
+  state: MatchState,
+  playerId: PlayerId,
+): number {
+  const s = getPlayer(state, playerId).objectiveStats;
+  return s.moneyFromBorrows + s.moneyFromSkills + s.moneyFromRates;
+}
+
+/** All recorded cash in (borrows + skills + rate + specials). */
+export function totalCashMade(state: MatchState, playerId: PlayerId): number {
+  const s = getPlayer(state, playerId).objectiveStats;
+  return (
+    s.moneyFromBorrows +
+    s.moneyFromSkills +
+    s.moneyFromRates +
+    s.moneyFromSpecialCards
+  );
 }
 
 export function recordColumnLevelPayout(

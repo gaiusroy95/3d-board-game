@@ -2,7 +2,7 @@ import { bankReceivePayment } from "./bank";
 import type { PlayerId } from "./board";
 import { getFigurineConfig } from "./figurineConfig";
 import { getPlayer, type MatchState, type PlayerMatchState } from "./match";
-import { recordSkillLearned } from "./objectives";
+import { recordSkillLearned, recordSkillUsed } from "./objectives";
 
 export type FigurineSkillId = "skill1" | "skill2";
 
@@ -196,6 +196,8 @@ export function activateFigurineSkill(
   if (slotIndex === 6 && skillId === "skill2") {
     noteExtra = " Force return 50% borrowed cash — select borrower (OPEN target UI).";
   }
+
+  next = recordSkillUsed(next, playerId);
 
   return {
     ok: true,

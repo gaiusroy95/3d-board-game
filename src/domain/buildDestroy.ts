@@ -3,6 +3,7 @@ import { payBuildCost } from "./bank";
 import { cellKey, type BoardPosition, type PlayerId } from "./board";
 import { registerBoardBuildAdvantage } from "./borrows";
 import { getPlayer, replacePlayerBoard, type MatchState } from "./match";
+import { recordBuildForBank } from "./bankRecords";
 import { recordBuildPlaced } from "./objectives";
 
 /**
@@ -138,6 +139,7 @@ export function applyBoardInteraction(
   }
 
   next = recordBuildPlaced(next, request.actorId);
+  next = recordBuildForBank(next, request.actorId);
 
   const where =
     kind === "own-board"

@@ -1,7 +1,15 @@
 import { bankPayToPlayer, bankReceivePayment } from "./bank";
 import type { PlayerId } from "./board";
 import { getPlayer, type ActiveLoan, type MatchState } from "./match";
-import { recordMoneyFromBorrows } from "./objectives";
+import {
+  bestColumnSales,
+  bestLevelSales,
+} from "./bankRecords";
+import {
+  moneyMadeWithoutSpecials,
+  recordMoneyFromBorrows,
+  totalCashMade,
+} from "./objectives";
 
 export type { ActiveLoan };
 
@@ -45,42 +53,43 @@ function countSkillsBought(state: MatchState, playerId: PlayerId): number {
 }
 
 /**
- * Compute the five loan offers. Advantage / sales terms default to 0 (OPEN).
+ * Compute the five loan offers from bank record lists.
+ * Loan 1: best column sales (calculating-rate money).
+ * Loan 2: best level sales + money made (borrows/skills/rate).
+ * Loan 3: 4200 start; quantum 0.5 on recycle money + lives.
+ * Loan 4: figurines×5600 + maxBuildsInOneTurn×5600 (added).
+ * Loan 5: 7000 unit on skills / cash / points.
  */
 export function listLoanOffers(
   state: MatchState,
   playerId: PlayerId,
 ): readonly LoanOffer[] {
   const player = getPlayer(state, playerId);
-  const advantageColumnSales = 0;
-  const advantageLevelSales = 0;
-  const moneyMadeWithoutSpecials = 0;
-  const moneyFromRecycle = 0;
-  const moneySpentSpecialCards = 0;
-  const advantageTurnBuilt = 0;
-  const advantageTurnMoney = 0;
-  const advantageTurnPoints = 0;
-  const skillsUsed = 0;
-  const totalCashMade = 0;
-  const pointsGained = 0;
+  const records = player.bankRecords;
+  const columnBest = bestColumnSales(records);
+  const levelBest = bestLevelSales(records);
+  const moneyMade = moneyMadeWithoutSpecials(state, playerId);
+  const moneyFromRecycle = records.moneyFromRecycle;
+  const moneySpentSpecialCards = records.moneySpentOnSpecialCards;
+  const maxBuilds = records.maxBuildsInOneTurn;
+  const skillsUsed = player.objectiveStats.skillsUsed;
+  const cashMade = totalCashMade(state, playerId);
+  const pointsGained = Math.max(0, player.objectivePoints);
 
-  const b1 = 1500 + 0.4 * advantageColumnSales;
-  const b2 =
-    2800 + 0.4 * advantageLevelSales + 0.4 * moneyMadeWithoutSpecials;
+  // Loan 3 recycle term: quantum 0.5 × money made from recycle (30% card refunds)
+  const b1 = 1500 + 0.4 * columnBest;
+  const b2 = 2800 + 0.4 * levelBest + 0.4 * moneyMade;
   const b3 =
     4200 +
-    0.5 * state.recycleUses * moneyFromRecycle +
+    0.5 * moneyFromRecycle +
     0.3 * moneySpentSpecialCards +
     0.5 * player.lives * 4200;
   const b4 =
-    player.ownedFigurines * 5600 +
-    0.5 * advantageTurnBuilt +
-    0.2 * advantageTurnMoney +
-    0.5 * advantageTurnPoints * 5600;
+    player.ownedFigurines * 5600 + maxBuilds * 5600;
   const b5 =
     countSkillsBought(state, playerId) * 7000 +
     0.5 * skillsUsed * 7000 +
-    0.25 * totalCashMade +
+    0.25 * cashMade +
     0.5 * pointsGained * 7000;
 
   const lvl4 = countLevel4Builds(state, playerId);
@@ -93,7 +102,7 @@ export function listLoanOffers(
       repaymentPremiumPercent: 0,
       enabled: true,
       disabledReason: null,
-      formulaNote: "1500 + 0.4×advantage(column sales) [advantage=0 until defined]",
+      formulaNote: `1500 + 0.4×best column sales(${columnBest})`,
     },
     {
       button: 2,
@@ -102,7 +111,7 @@ export function listLoanOffers(
       repaymentPremiumPercent: 25,
       enabled: true,
       disabledReason: null,
-      formulaNote: "2800 + 0.4×advantage(level) + 0.4×money made [OPEN terms=0]",
+      formulaNote: `2800 + 0.4×best level(${levelBest}) + 0.4×money made(${moneyMade})`,
     },
     {
       button: 3,
@@ -112,7 +121,7 @@ export function listLoanOffers(
       enabled: state.recycleUses >= 1,
       disabledReason:
         state.recycleUses >= 1 ? null : "Requires recycle used at least once.",
-      formulaNote: "4200 + recycle/lives terms (partial)",
+      formulaNote: `4200 + 0.5×recycle money(${moneyFromRecycle}) + 0.3×card spend + 0.5×lives×4200`,
     },
     {
       button: 4,
@@ -121,7 +130,7 @@ export function listLoanOffers(
       repaymentPremiumPercent: 75,
       enabled: lvl4 >= 3,
       disabledReason: lvl4 >= 3 ? null : "Requires 3× Level-4 builds (lvl4*3).",
-      formulaNote: "figurines×5600 + advantage-turn terms [OPEN=0]",
+      formulaNote: `figurines×5600 + max builds/turn(${maxBuilds})×5600`,
     },
     {
       button: 5,
@@ -131,7 +140,7 @@ export function listLoanOffers(
       enabled: state.playersKnockedOut >= 1,
       disabledReason:
         state.playersKnockedOut >= 1 ? null : "Requires knock out 1 player.",
-      formulaNote: "skills×7000 + usage/cash/points terms [OPEN=0]",
+      formulaNote: `7000 unit: skills bought/used + 0.25×cash made(${cashMade}) + points`,
     },
   ];
 }

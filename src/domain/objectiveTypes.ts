@@ -33,13 +33,20 @@ export interface ObjectiveDef {
 
 export interface PlayerObjectiveStats {
   readonly buildsPlaced: number;
+  /** @deprecated kept for save compat; race uses skillsUsed */
   readonly skillsLearned: number;
+  /** Activations / uses of figurine skills (client: “10 skills used”). */
+  readonly skillsUsed: number;
   readonly specialCardsPlayed: number;
   readonly whiskyL3Payouts: number;
   readonly vodkaL4Payouts: number;
   readonly whiskyL4Payouts: number;
   readonly moneyFromSkills: number;
   readonly moneyFromBorrows: number;
+  /** Normal/Extra calculating-rate payouts received (client: money made by rate). */
+  readonly moneyFromRates: number;
+  /** Cash from special cards (e.g. Money Maker) — excluded from “without specials”. */
+  readonly moneyFromSpecialCards: number;
   readonly livesAtFirstKnockout: number | null;
   readonly survivedSecondKnockout: boolean;
 }
@@ -48,12 +55,15 @@ export function emptyObjectiveStats(): PlayerObjectiveStats {
   return {
     buildsPlaced: 0,
     skillsLearned: 0,
+    skillsUsed: 0,
     specialCardsPlayed: 0,
     whiskyL3Payouts: 0,
     vodkaL4Payouts: 0,
     whiskyL4Payouts: 0,
     moneyFromSkills: 0,
     moneyFromBorrows: 0,
+    moneyFromRates: 0,
+    moneyFromSpecialCards: 0,
     livesAtFirstKnockout: null,
     survivedSecondKnockout: false,
   };
@@ -93,8 +103,8 @@ export const RACE_OBJECTIVES: readonly ObjectiveDef[] = [
   {
     id: "race-10-skills",
     kind: "race",
-    title: "First to 10 skills",
-    description: "Be first to learn 10 skills.",
+    title: "First to 10 skills used",
+    description: "Be first to use/activate skills 10 times.",
     points: 5,
   },
   {
