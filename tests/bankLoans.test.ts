@@ -95,7 +95,22 @@ describe("M2-7 bank loans", () => {
     expect(listLoanOffers(match, "p1")[0]!.principal).toBe(1900);
   });
 
+  it("loan 5 starts at 7000 before skill/cash terms", () => {
+    const match = createFourPlayerMatch({
+      matchId: "loan",
+      players: [
+        { id: "p1", displayName: "A" },
+        { id: "p2", displayName: "B" },
+        { id: "p3", displayName: "C" },
+        { id: "p4", displayName: "D" },
+      ],
+    });
+    // No skills bought/used, no cash made, 0 objective points → principal 7000
+    expect(listLoanOffers(match, "p1")[4]!.principal).toBe(7000);
+  });
+
   it("loan 4 adds max builds/turn × 5600 to figurines × 5600", () => {
+
     let match = createFourPlayerMatch({
       matchId: "loan",
       players: [

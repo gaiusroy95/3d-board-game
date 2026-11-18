@@ -86,7 +86,9 @@ export function listLoanOffers(
     0.5 * player.lives * 4200;
   const b4 =
     player.ownedFigurines * 5600 + maxBuilds * 5600;
+  // Client: Borrow 5 starts at 7000
   const b5 =
+    7000 +
     countSkillsBought(state, playerId) * 7000 +
     0.5 * skillsUsed * 7000 +
     0.25 * cashMade +
@@ -140,7 +142,7 @@ export function listLoanOffers(
       enabled: state.playersKnockedOut >= 1,
       disabledReason:
         state.playersKnockedOut >= 1 ? null : "Requires knock out 1 player.",
-      formulaNote: `7000 unit: skills bought/used + 0.25×cash made(${cashMade}) + points`,
+      formulaNote: `7000 start + skills bought/used×7000 + 0.25×cash made(${cashMade}) + points`,
     },
   ];
 }
