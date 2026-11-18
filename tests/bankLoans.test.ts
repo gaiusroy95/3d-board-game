@@ -95,8 +95,8 @@ describe("M2-7 bank loans", () => {
     expect(listLoanOffers(match, "p1")[0]!.principal).toBe(1900);
   });
 
-  it("loan 5 starts at 7000 before skill/cash terms", () => {
-    const match = createFourPlayerMatch({
+  it("loan 5 has 4 cash sources (7000 unit, no flat 5th base)", () => {
+    let match = createFourPlayerMatch({
       matchId: "loan",
       players: [
         { id: "p1", displayName: "A" },
@@ -105,12 +105,32 @@ describe("M2-7 bank loans", () => {
         { id: "p4", displayName: "D" },
       ],
     });
-    // No skills bought/used, no cash made, 0 objective points → principal 7000
-    expect(listLoanOffers(match, "p1")[4]!.principal).toBe(7000);
+    expect(listLoanOffers(match, "p1")[4]!.principal).toBe(0);
+
+    match = {
+      ...match,
+      players: match.players.map((p) =>
+        p.id === "p1"
+          ? {
+              ...p,
+              figurineSkills: [
+                { slotIndex: 0, skill1Learned: true, skill2Learned: false },
+              ],
+              objectiveStats: {
+                ...p.objectiveStats,
+                skillsUsed: 2,
+                moneyFromBorrows: 4000,
+              },
+              objectivePoints: 4,
+            }
+          : p,
+      ),
+    };
+    // 1×7000 + 0.5×2×7000 + 0.25×4000 + 0.5×4×7000 = 29000
+    expect(listLoanOffers(match, "p1")[4]!.principal).toBe(29_000);
   });
 
-  it("loan 4 adds max builds/turn × 5600 to figurines × 5600", () => {
-
+  it("loan 4 has 4 cash sources (figurines, builds, money, points)", () => {
     let match = createFourPlayerMatch({
       matchId: "loan",
       players: [
@@ -127,15 +147,17 @@ describe("M2-7 bank loans", () => {
           ? {
               ...p,
               bankRecords: { ...p.bankRecords, maxBuildsInOneTurn: 3 },
+              objectiveStats: {
+                ...p.objectiveStats,
+                moneyFromRates: 1000,
+              },
+              objectivePoints: 2,
             }
           : p,
       ),
-      // unlock loan 4
-      playersKnockedOut: 0,
     };
-    // Need 3 L4 builds to enable — principal still computed
-    // 2×5600 + 3×5600 = 28000
-    expect(listLoanOffers(match, "p1")[3]!.principal).toBe(28_000);
+    // 2×5600 + 3×5600 + 0.2×1000 + 0.5×2×5600 = 33800
+    expect(listLoanOffers(match, "p1")[3]!.principal).toBe(33_800);
   });
 
   it("loan 2 grows with money made (borrows + skills + rate)", () => {

@@ -54,11 +54,7 @@ function countSkillsBought(state: MatchState, playerId: PlayerId): number {
 
 /**
  * Compute the five loan offers from bank record lists.
- * Loan 1: best column sales (calculating-rate money).
- * Loan 2: best level sales + money made (borrows/skills/rate).
- * Loan 3: 4200 start; quantum 0.5 on recycle money + lives.
- * Loan 4: figurines×5600 + maxBuildsInOneTurn×5600 (added).
- * Loan 5: 7000 unit on skills / cash / points.
+ * Loan 4 & 5 each have **4 sources** of adding cash (client).
  */
 export function listLoanOffers(
   state: MatchState,
@@ -72,11 +68,11 @@ export function listLoanOffers(
   const moneyFromRecycle = records.moneyFromRecycle;
   const moneySpentSpecialCards = records.moneySpentOnSpecialCards;
   const maxBuilds = records.maxBuildsInOneTurn;
+  const skillsBought = countSkillsBought(state, playerId);
   const skillsUsed = player.objectiveStats.skillsUsed;
   const cashMade = totalCashMade(state, playerId);
   const pointsGained = Math.max(0, player.objectivePoints);
 
-  // Loan 3 recycle term: quantum 0.5 × money made from recycle (30% card refunds)
   const b1 = 1500 + 0.4 * columnBest;
   const b2 = 2800 + 0.4 * levelBest + 0.4 * moneyMade;
   const b3 =
@@ -84,15 +80,21 @@ export function listLoanOffers(
     0.5 * moneyFromRecycle +
     0.3 * moneySpentSpecialCards +
     0.5 * player.lives * 4200;
-  const b4 =
-    player.ownedFigurines * 5600 + maxBuilds * 5600;
-  // Client: Borrow 5 starts at 7000
-  const b5 =
-    7000 +
-    countSkillsBought(state, playerId) * 7000 +
-    0.5 * skillsUsed * 7000 +
-    0.25 * cashMade +
-    0.5 * pointsGained * 7000;
+
+  // Loan 4 — 4 sources: figurines, max builds/turn, money made, points
+  const b4Fig = player.ownedFigurines * 5600;
+  const b4Builds = maxBuilds * 5600;
+  const b4Money = 0.2 * moneyMade;
+  const b4Points = 0.5 * pointsGained * 5600;
+  const b4 = b4Fig + b4Builds + b4Money + b4Points;
+
+  // Loan 5 — 4 sources (7000 is the unit / “start” scale, not a 5th add-on):
+  // skills bought, skills used, total cash made, points
+  const b5SkillsBought = skillsBought * 7000;
+  const b5SkillsUsed = 0.5 * skillsUsed * 7000;
+  const b5Cash = 0.25 * cashMade;
+  const b5Points = 0.5 * pointsGained * 7000;
+  const b5 = b5SkillsBought + b5SkillsUsed + b5Cash + b5Points;
 
   const lvl4 = countLevel4Builds(state, playerId);
 
@@ -132,7 +134,7 @@ export function listLoanOffers(
       repaymentPremiumPercent: 75,
       enabled: lvl4 >= 3,
       disabledReason: lvl4 >= 3 ? null : "Requires 3× Level-4 builds (lvl4*3).",
-      formulaNote: `figurines×5600 + max builds/turn(${maxBuilds})×5600`,
+      formulaNote: `4 sources: fig×5600(${b4Fig}) + max builds×5600(${b4Builds}) + 0.2×money(${Math.floor(b4Money)}) + 0.5×pts×5600(${Math.floor(b4Points)})`,
     },
     {
       button: 5,
@@ -142,7 +144,7 @@ export function listLoanOffers(
       enabled: state.playersKnockedOut >= 1,
       disabledReason:
         state.playersKnockedOut >= 1 ? null : "Requires knock out 1 player.",
-      formulaNote: `7000 start + skills bought/used×7000 + 0.25×cash made(${cashMade}) + points`,
+      formulaNote: `4 sources (×7000): skills bought(${b5SkillsBought}) + 0.5×used(${b5SkillsUsed}) + 0.25×cash(${Math.floor(b5Cash)}) + 0.5×pts(${Math.floor(b5Points)})`,
     },
   ];
 }
