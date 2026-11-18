@@ -1,18 +1,19 @@
-# Four Player Board
+# Back in century 20
 
-Milestone 1 local prototype of a four-player desktop board game intended for Steam.
+Steam-targeted four-player desktop board game (**Back in century 20**). **Milestone 2** delivers local core gameplay (economy, decks, figurines, win/lose, bank loans) on top of the Milestone 1 table/boards prototype.
 
-## Features in this milestone
+## Milestone 2 features
 
-- Dark tabletop with a white skull centerpiece
-- Four separate 5×5 player boards
-- Columns: Wine, Rum, Tequila, Vodka, Whisky
-- Levels 1–5 (Level 1 at the bottom)
-- Level-turn flow with End turn
-- Scoring foundation: Level 5 = 5 points; Levels 1–4 = 0
-- Figurine slots (up to 7) with activation popup (figurines are activated, not moved)
-- Build / Destroy controls as placeholders until remaining rules are confirmed
-- Tournament bracket helpers for later work (64 → 16 → 4 → 1)
+- Starting cash **1000** / lives **3** (documented ASSUMPTIONS until client locks values)
+- **Bank** five actions: create · setup money · pay build cost · receive payment · return by level
+- **Build** pays cost table immediately into Bank; blocked if insufficient cash
+- **End turn:** figurine having reward → **Normal + Extra** calculating-rate returns → player+level advance together
+- Opponent-board builds gated by permit card / condition flag; Extra payout to builder
+- Shared special **decks 1–3** (40/45/45, prices 4000/6000/8000), buy / play ≤4 / unlock / recycle 0.3×
+- Placeholder card catalog (swap when client list arrives); Deck1 card 1 = opponent-build permit
+- Figurine learn / activate with configurable cash costs & rewards
+- Win/lose evaluation: 0 lives, cash ≤ −7000, 70 pts → final-options stub, 0 specials → special end
+- Bank **loans** 5 buttons (repay premiums 0/25/50/75/100%; OPEN terms zeroed)
 
 ## Prerequisites
 
@@ -32,24 +33,20 @@ npm run build
 npm run dist         # Windows unpackaged Electron output
 ```
 
-First Electron launch downloads a platform binary into `node_modules/electron/dist` (may take several minutes).
-
-## Demo assets
-
-Screenshots and a short demo video are in `demo/`.
-
 ## Project layout
 
 ```
-src/domain/      Game rules and tournament helpers (pure TypeScript)
+src/domain/      Pure rules: bank, payouts, cards, figurines, loans, win/lose, match
 src/render/      Three.js table, boards, figurines
-src/app/         React HUD and UI state
+src/app/         React HUD, CardPanel, LoanPanel
 src/desktop/     Electron main/preload
-src/interfaces/  Future multiplayer / admin service contracts
-tests/           Unit tests
-demo/            Milestone 1 screenshots and demo video
+tests/           Vitest unit tests
 ```
 
-## Notes
+## Assumptions
 
-Steam networking, online multiplayer, and full tournament administration are out of scope for Milestone 1. Build/money mutations and figurine skill costs remain pending confirmed design details.
+Temporary coding defaults (not client-approved facts) live in `src/domain/assumptions.ts` and `../dev-brief/docs/M2_ASSUMPTIONS.md`.
+
+## Out of scope (later milestones)
+
+Steam networking, online sync, full tournament admin product, final art, inventing missing card effects or limit-scheme percentages.

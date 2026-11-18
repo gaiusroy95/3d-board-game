@@ -6,8 +6,35 @@ import {
   type PlayerBoard,
   type PlayerId,
 } from "./board";
-import { milestone1RulesConfig, type GameRulesConfig } from "./rulesConfig";
+import type {
+  BoardBuildAdvantage,
+  BuildBorrow,
+  PlayerBorrow,
+} from "./borrowTypes";
+import {
+  createInitialCardsState,
+  type MatchCardsState,
+} from "./cards/state";
+import { milestone2RulesConfig, type GameRulesConfig } from "./rulesConfig";
 import { scorePlayerTotal } from "./scoring";
+
+export type {
+  BoardBuildAdvantage,
+  BuildBorrow,
+  PlayerBorrow,
+} from "./borrowTypes";
+
+export interface BlockedCellState {
+  readonly blockedBy: PlayerId;
+  readonly turnsRemaining: number;
+}
+
+export interface ActiveLoan {
+  readonly button: 1 | 2 | 3 | 4 | 5;
+  readonly principal: number;
+  readonly repaymentDue: number;
+  readonly borrowerId: PlayerId;
+}
 
 export interface FigurineSkillLearnState {
   readonly slotIndex: number;
@@ -15,16 +42,46 @@ export interface FigurineSkillLearnState {
   readonly skill2Learned: boolean;
 }
 
+export interface PendingColumnCard {
+  readonly kind: "column-master" | "column-hammer";
+  readonly column: import("./board").ColumnId;
+  readonly amount: number;
+  readonly cardName: string;
+}
+
 export interface PlayerMatchState {
   readonly id: PlayerId;
   readonly displayName: string;
   readonly board: PlayerBoard;
-  readonly cash: number | null;
-  readonly lives: number | null;
-  /** 0..maxFigurines; unlocked via OPEN conditions. */
+  readonly cash: number;
+  readonly lives: number;
+  /** Permit to build on opponent boards (card/condition). */
+  readonly canBuildOnOpponent: boolean;
+  readonly specialCardsPlayedThisTurn: number;
+  /** Effective max special cards this turn (base 4; fig2 skill can raise). */
+  readonly maxSpecialCardsThisTurn: number;
+  /** Skill-class card: remaining free skill reuses. */
+  readonly skillReusesRemaining: number;
+  /** Get-rich card: pending figurine reward picks. */
+  readonly pendingGetRichRewards: number;
+  /** Master/Hammer awaiting a board+column target (selected cell). */
+  readonly pendingColumnCard: PendingColumnCard | null;
+  /** Times this player borrowed from the Bank this match (max 1). */
+  readonly bankBorrowsUsed: number;
+  /** Total cash received from Bank borrows (figurine 1 unlock ≥10000). */
+  readonly bankBorrowCashTotal: number;
+  /**
+   * Extra lives gained beyond starting (Healer cards / players).
+   * Figurine 2 unlock needs ≥3.
+   */
+  readonly livesGainedExtra: number;
+  /** 0..maxFigurines; unlocked via conditions / cards. */
   readonly ownedFigurines: number;
-  /** Which skills are learned per owned slot (activation still OPEN). */
   readonly figurineSkills: readonly FigurineSkillLearnState[];
+  /** Figurine 2: how many times its skill was used (raises card limit). */
+  readonly figurine2SkillUses: number;
+  /** Offers of player-borrow this player accepted as lender (figurine 4). */
+  readonly playerBorrowOffersAccepted: number;
 }
 
 export interface LevelTurnState {
@@ -41,6 +98,27 @@ export interface MatchState {
   readonly playerOrder: readonly PlayerId[];
   readonly levelTurn: LevelTurnState;
   readonly rules: GameRulesConfig;
+  /** Shared bank pool balance (ASSUMPTION A6). */
+  readonly bankBalance: number;
+  readonly cards: MatchCardsState;
+  readonly activeLoans: readonly ActiveLoan[];
+  /** Times any player recycled (loan button 3 gate). */
+  readonly recycleUses: number;
+  readonly playersKnockedOut: number;
+  /** Global End-turn counter (for scheduling player-borrow repayment). */
+  readonly turnIndex: number;
+  readonly buildBorrows: readonly BuildBorrow[];
+  readonly playerBorrows: readonly PlayerBorrow[];
+  /** Type-2: standing opponent builds that pay board owner 20%/turn. */
+  readonly boardBuildAdvantages: readonly BoardBuildAdvantage[];
+  /** Cells blocked by figurine skills: `${column}:${level}` → state. */
+  readonly blockedCells: Readonly<Record<string, BlockedCellState>>;
+  readonly overLevel5BonusActive: {
+    readonly playerId: PlayerId;
+    readonly column: import("./board").ColumnId;
+    readonly multiplier: number;
+    readonly expiresAfterTurnOf: PlayerId;
+  } | null;
 }
 
 export function createFourPlayerMatch(input: {
@@ -57,7 +135,7 @@ export function createFourPlayerMatch(input: {
     throw new Error("A match requires exactly 4 players");
   }
 
-  const rules = input.rules ?? milestone1RulesConfig;
+  const rules = input.rules ?? milestone2RulesConfig;
   const players: PlayerMatchState[] = input.players.map((p) => {
     const board = createEmptyBoard(p.id);
     assertBoardHas25Cells(board);
@@ -73,6 +151,17 @@ export function createFourPlayerMatch(input: {
       lives: rules.startingLives,
       ownedFigurines,
       figurineSkills: p.figurineSkills ?? [],
+      canBuildOnOpponent: false,
+      specialCardsPlayedThisTurn: 0,
+      maxSpecialCardsThisTurn: rules.maxSpecialCardsPlayedPerTurn,
+      skillReusesRemaining: 0,
+      pendingGetRichRewards: 0,
+      pendingColumnCard: null,
+      bankBorrowsUsed: 0,
+      bankBorrowCashTotal: 0,
+      livesGainedExtra: 0,
+      figurine2SkillUses: 0,
+      playerBorrowOffersAccepted: 0,
     };
   });
 
@@ -86,6 +175,17 @@ export function createFourPlayerMatch(input: {
       activePlayerIndex: 0,
     },
     rules,
+    bankBalance: 0,
+    cards: createInitialCardsState(playerOrder, { shuffle: false }),
+    activeLoans: [],
+    recycleUses: 0,
+    playersKnockedOut: 0,
+    turnIndex: 0,
+    buildBorrows: [],
+    playerBorrows: [],
+    boardBuildAdvantages: [],
+    blockedCells: {},
+    overLevel5BonusActive: null,
   };
 }
 
@@ -141,12 +241,34 @@ export function advanceTurn(state: MatchState): MatchState {
     ? 1
     : state.levelTurn.activeLevel + 1) as Level;
 
+  const leavingId = state.playerOrder[state.levelTurn.activePlayerIndex];
+  const clearBonus =
+    state.overLevel5BonusActive?.expiresAfterTurnOf === leavingId
+      ? null
+      : state.overLevel5BonusActive;
+
   return {
     ...state,
+    overLevel5BonusActive: clearBonus,
     levelTurn: {
       activeLevel: nextLevel,
       activePlayerIndex: nextPlayerIndex,
     },
+    players: state.players.map((p) => {
+      const cardLimit =
+        p.figurine2SkillUses <= 0
+          ? state.rules.maxSpecialCardsPlayedPerTurn
+          : p.figurine2SkillUses === 1
+            ? 5
+            : p.figurine2SkillUses === 2
+              ? 6
+              : 7;
+      return {
+        ...p,
+        specialCardsPlayedThisTurn: 0,
+        maxSpecialCardsThisTurn: cardLimit,
+      };
+    }),
   };
 }
 

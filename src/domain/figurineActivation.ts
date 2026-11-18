@@ -1,19 +1,15 @@
 import type { PlayerId } from "./board";
 import {
+  activateFigurineSkill,
+  type FigurineSkillId,
+} from "./figurines";
+import {
   getPlayer,
   type FigurineSkillLearnState,
   type MatchState,
 } from "./match";
 
-/**
- * Figurine activation (client):
- * - Do not move figurines.
- * - Per-turn reward for having them (amounts OPEN).
- * - Learned skills activate via popup (2 buttons) after paying an activation amount (OPEN).
- * - Using a skill → two rewards (figurine + skill); amounts OPEN.
- */
-
-export type FigurineSkillId = "skill1" | "skill2";
+export type { FigurineSkillId };
 
 export interface FigurineActivateRequest {
   readonly actorId: PlayerId;
@@ -22,8 +18,8 @@ export interface FigurineActivateRequest {
 }
 
 export type FigurineActivateResult =
-  | { readonly ok: true; readonly note: string }
-  | { readonly ok: false; readonly reason: string };
+  | { readonly ok: true; readonly state: MatchState; readonly note: string }
+  | { readonly ok: false; readonly state: MatchState; readonly reason: string };
 
 export function getLearnStateForSlot(
   state: MatchState,
@@ -55,34 +51,26 @@ export function canOpenFigurinePopup(
   return { ok: true };
 }
 
-/**
- * No-op activation until learn/activation costs and rewards are confirmed.
- * Never mutates match cash/points in Milestone 1.
- */
+export function applyFigurineActivation(
+  state: MatchState,
+  request: FigurineActivateRequest,
+): FigurineActivateResult {
+  const result = activateFigurineSkill(
+    state,
+    request.actorId,
+    request.slotIndex,
+    request.skillId,
+  );
+  if (!result.ok) {
+    return { ok: false, state: result.state, reason: result.reason };
+  }
+  return { ok: true, state: result.state, note: result.note };
+}
+
+/** @deprecated Prefer applyFigurineActivation */
 export function applyFigurineActivationNoOp(
   state: MatchState,
   request: FigurineActivateRequest,
 ): FigurineActivateResult {
-  const gate = canOpenFigurinePopup(state, request.actorId, request.slotIndex);
-  if (!gate.ok) {
-    return gate;
-  }
-
-  const learn = getLearnStateForSlot(state, request.actorId, request.slotIndex);
-  const learned =
-    request.skillId === "skill1" ? learn.skill1Learned : learn.skill2Learned;
-  if (!learned) {
-    return {
-      ok: false,
-      reason:
-        "Skill not learned yet. Learning costs cash (amount OPEN). No state change.",
-    };
-  }
-
-  // Pending confirmed activation costs and reward amounts.
-  return {
-    ok: false,
-    reason:
-      "Skill activation costs and reward amounts are OPEN. Popup choice recorded as no-op; no cash/points mutation.",
-  };
+  return applyFigurineActivation(state, request);
 }

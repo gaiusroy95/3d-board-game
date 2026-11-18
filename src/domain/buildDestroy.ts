@@ -1,15 +1,15 @@
+import { M2Assumptions } from "./assumptions";
+import { payBuildCost } from "./bank";
 import { cellKey, type BoardPosition, type PlayerId } from "./board";
+import { registerBoardBuildAdvantage } from "./borrows";
 import { getPlayer, replacePlayerBoard, type MatchState } from "./match";
 
 /**
  * Build / destroy / opponent-board access.
  *
- * Client (M1-6): may build on both boards; building on another player's board
- * requires a special condition or special card (details OPEN).
- * Destroy rules remain OPEN from earlier requirements.
- *
- * Milestone 1 correction: own-board (and gated opponent) builds place a lasting
- * marker that persists across turns. Cash/money application remains Milestone 2+.
+ * Opponent board requires special card OR condition (permit flag).
+ * Build pays cost table immediately into Bank (M2).
+ * Destroy remains disabled (A10).
  */
 
 export type BuildTargetKind = "own-board" | "opponent-board";
@@ -19,8 +19,10 @@ export interface BuildActionRequest {
   readonly actorId: PlayerId;
   readonly targetOwnerId: PlayerId;
   readonly position: BoardPosition;
-  /** Must be true for opponent-board builds once cards/conditions exist. */
-  readonly specialConditionOrCardSatisfied: boolean;
+  /**
+   * Explicit card/condition satisfaction. Also accepts actor.canBuildOnOpponent.
+   */
+  readonly specialConditionOrCardSatisfied?: boolean;
 }
 
 export interface DestroyActionRequest {
@@ -43,25 +45,42 @@ export function targetKind(
   return actorId === targetOwnerId ? "own-board" : "opponent-board";
 }
 
+function hasOpponentPermit(
+  state: MatchState,
+  actorId: PlayerId,
+  explicit: boolean | undefined,
+): boolean {
+  if (explicit) return true;
+  return getPlayer(state, actorId).canBuildOnOpponent;
+}
+
 /**
- * Apply build/destroy. Builds persist on the board across turns.
- * Destroy stays blocked until client defines effects.
+ * Apply build/destroy. Builds persist and cost cash immediately.
  */
 export function applyBoardInteraction(
   state: MatchState,
   request: BoardInteractionRequest,
 ): BoardInteractionResult {
   if (request.type === "destroy") {
+    if (!M2Assumptions.destroyEnabled) {
+      return {
+        ok: false,
+        reason: "Destroy rules are not finalized yet. No state change.",
+        state,
+      };
+    }
     return {
       ok: false,
-      reason:
-        "Destroy rules are not finalized yet. No state change.",
+      reason: "Destroy is not implemented.",
       state,
     };
   }
 
   const kind = targetKind(request.actorId, request.targetOwnerId);
-  if (kind === "opponent-board" && !request.specialConditionOrCardSatisfied) {
+  if (
+    kind === "opponent-board" &&
+    !hasOpponentPermit(state, request.actorId, request.specialConditionOrCardSatisfied)
+  ) {
     return {
       ok: false,
       reason:
@@ -72,6 +91,14 @@ export function applyBoardInteraction(
 
   const target = getPlayer(state, request.targetOwnerId);
   const key = cellKey(request.position.column, request.position.level);
+  if (state.blockedCells[key]) {
+    const block = state.blockedCells[key]!;
+    return {
+      ok: false,
+      reason: `Cell ${key} is blocked (by ${block.blockedBy}, ${block.turnsRemaining} turn(s) left). Master can unblock, or wait.`,
+      state,
+    };
+  }
   const cell = target.board.cells[key];
   if (!cell) {
     return { ok: false, reason: `Unknown cell ${key}.`, state };
@@ -84,21 +111,42 @@ export function applyBoardInteraction(
     };
   }
 
+  const payment = payBuildCost(state, request.actorId, request.position);
+  if (!payment.ok) {
+    return { ok: false, reason: payment.reason, state: payment.state };
+  }
+
+  let next = payment.state;
+  const targetAfterPay = getPlayer(next, request.targetOwnerId);
   const cells = {
-    ...target.board.cells,
+    ...targetAfterPay.board.cells,
     [key]: { kind: "built" as const, builtBy: request.actorId },
   };
-  const next = replacePlayerBoard(state, request.targetOwnerId, {
-    ...target.board,
+  next = replacePlayerBoard(next, request.targetOwnerId, {
+    ...targetAfterPay.board,
     cells,
   });
+
+  if (kind === "opponent-board") {
+    next = registerBoardBuildAdvantage(
+      next,
+      request.targetOwnerId,
+      request.actorId,
+      request.position,
+    );
+  }
+
+  const where =
+    kind === "own-board"
+      ? "own board"
+      : `opponent board (${request.targetOwnerId})`;
 
   return {
     ok: true,
     state: next,
-    note: `Build placed on ${request.targetOwnerId} ${request.position.column} L${request.position.level} (stays after End turn). Cash costs apply in a later milestone.`,
+    note: `${payment.note} Build placed on ${where} ${request.position.column} L${request.position.level}.`,
   };
 }
 
-/** @deprecated Use applyBoardInteraction — kept name alias for older call sites/tests. */
+/** @deprecated Use applyBoardInteraction */
 export const applyBoardInteractionNoOp = applyBoardInteraction;

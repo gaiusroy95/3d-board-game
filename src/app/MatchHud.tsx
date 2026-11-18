@@ -14,6 +14,8 @@ interface MatchHudProps {
   onBuild: () => void;
   onDestroy: () => void;
   onActivateFigurineDemo: () => void;
+  onUnlockFigurine: () => void;
+  onBuildBorrow: () => void;
 }
 
 export function MatchHud({
@@ -24,6 +26,8 @@ export function MatchHud({
   onBuild,
   onDestroy,
   onActivateFigurineDemo,
+  onUnlockFigurine,
+  onBuildBorrow,
 }: MatchHudProps) {
   const activeId = getActivePlayerId(match);
   const active = match.players.find((p) => p.id === activeId);
@@ -36,6 +40,8 @@ export function MatchHud({
           Level-turn <strong>L{match.levelTurn.activeLevel}</strong>
           {" · "}
           Active: <strong>{active?.displayName ?? activeId}</strong>
+          {" · "}
+          Bank: <strong>{match.bankBalance}</strong>
         </div>
         <button type="button" className="hud-button" onClick={onEndTurn}>
           End turn
@@ -49,6 +55,9 @@ export function MatchHud({
         >
           Activate figurine
         </button>
+        <button type="button" className="hud-button" onClick={onUnlockFigurine}>
+          Unlock figurine
+        </button>
       </div>
 
       <ul className="score-list">
@@ -56,6 +65,8 @@ export function MatchHud({
           <li key={player.id} className={player.id === activeId ? "is-active" : undefined}>
             <span>{player.displayName}</span>
             <span>{scoreForPlayer(match, player.id)} pts</span>
+            <span>{player.cash} cash</span>
+            <span className="muted">{player.lives} lives</span>
             <span className="muted">{player.ownedFigurines}/7 fig</span>
           </li>
         ))}
@@ -66,7 +77,7 @@ export function MatchHud({
           type="button"
           className="hud-button"
           onClick={onBuild}
-          title="Build rules partially OPEN — uses no-op policy"
+          title="Pays cost table into Bank immediately"
         >
           Build
         </button>
@@ -74,9 +85,18 @@ export function MatchHud({
           type="button"
           className="hud-button"
           onClick={onDestroy}
-          title="Destroy rules OPEN — disabled effect"
+          disabled
+          title="Client: Destroy is not a player button"
         >
           Destroy
+        </button>
+        <button
+          type="button"
+          className="hud-button"
+          onClick={onBuildBorrow}
+          title="Borrow build cost; repay 20% of cost each turn (shared cap 3/5/7)"
+        >
+          Build borrow
         </button>
         <span className="muted">
           Selected: {selectedCell ? describeCell(selectedCell) : "none"}
