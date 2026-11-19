@@ -10,6 +10,9 @@ interface GameViewportProps {
   match: MatchState;
   selection: CellSelection | null;
   onPick: (pick: PickPayload) => void;
+  /** M3: focus / hide other boards for the local player. */
+  focusPlayerId?: string | null;
+  ownBoardOnly?: boolean;
 }
 
 function isColumnId(value: string): value is ColumnId {
@@ -24,7 +27,13 @@ function isLevel(value: number): value is Level {
  * Mounts Three.js once; syncs highlights from UI selection + active player.
  * Picks emit intents — domain/UI owners decide legality.
  */
-export function GameViewport({ match, selection, onPick }: GameViewportProps) {
+export function GameViewport({
+  match,
+  selection,
+  onPick,
+  focusPlayerId = null,
+  ownBoardOnly = false,
+}: GameViewportProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<TableSceneHandle | null>(null);
   const onPickRef = useRef(onPick);
@@ -38,7 +47,10 @@ export function GameViewport({ match, selection, onPick }: GameViewportProps) {
 
     let disposed = false;
     let frame = 0;
-    const handle = createTableScene(host, match);
+    const handle = createTableScene(host, match, {
+      focusPlayerId,
+      ownBoardOnly,
+    });
     sceneRef.current = handle;
 
     const onResize = () => {
@@ -87,6 +99,12 @@ export function GameViewport({ match, selection, onPick }: GameViewportProps) {
     // Scene is created once for the match id; board layout does not rebuild each turn.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional stable mount
   }, [match.id]);
+
+  useEffect(() => {
+    const handle = sceneRef.current;
+    if (!handle) return;
+    handle.setOwnBoardFocus(focusPlayerId ?? null, ownBoardOnly);
+  }, [focusPlayerId, ownBoardOnly]);
 
   useEffect(() => {
     const handle = sceneRef.current;

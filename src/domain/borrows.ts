@@ -20,6 +20,7 @@ export type {
   BoardBuildAdvantage,
   BorrowRateOption,
   BuildBorrow,
+  CashBorrowOffer,
   PlayerBorrow,
 } from "./borrowTypes";
 
@@ -40,7 +41,12 @@ function countPlayerNonBankBorrows(state: MatchState, playerId: PlayerId): numbe
   );
 }
 
-/** Default (higher) rate and optional lower rate unlocked by paying a fee. */
+/**
+ * Client Rules.txt + D–F:
+ * #1–3 → +40% (Deck1 cap 3)
+ * #4–5 → +50% or +30% (unlock when Deck 2 appears, cap 5)
+ * #6–7 → +60% or +40% (Deck 3, cap 7)
+ */
 export function ratesForBorrowOrdinal(ordinal: number): {
   readonly defaultRate: BorrowRateOption;
   readonly lowerRate: BorrowRateOption | null;
@@ -75,14 +81,13 @@ export function listBorrowCapacity(
   const nextOrdinal = used + 1;
   const rates = ratesForBorrowOrdinal(nextOrdinal);
   const unlockFeePct =
-    nextOrdinal <= 3 ? 0.2 : nextOrdinal <= 5 ? 0.3 : 0.4;
+    nextOrdinal <= 3 ? 0 : nextOrdinal <= 5 ? 0.3 : 0.4;
   return {
     used,
     max,
     nextOrdinal,
     defaultRate: rates.defaultRate,
     lowerRate: rates.lowerRate,
-    /** Display hint: fee = this fraction × principal when unlocking lower rate. */
     lowerRateUnlockFeePct: unlockFeePct,
     lowerRateUnlockFee: M2Assumptions.lowerBorrowRateUnlockFee,
   };
@@ -128,8 +133,8 @@ export function takeBuildBorrow(
 }
 
 /**
- * Type 1 — cash borrow: +40% total on #1–3; #4–7 default higher rate,
- * pay fee to unlock lower rate (cannot freely choose).
+ * Type 1 — cash borrow at 40% / 50% / 60% by ordinal.
+ * Preferred flow: lenders post offers; borrower selects amount on their turn.
  */
 export function takePlayerBorrow(
   state: MatchState,
@@ -160,18 +165,15 @@ export function takePlayerBorrow(
     return {
       ok: false,
       state,
-      reason: "No lower rate available for this borrow band (1–3 is fixed 40%).",
+      reason: "No lower rate for this borrow band (1–3 is fixed +40%).",
     };
   }
 
   const premiumPercent: BorrowRateOption = wantLower
     ? cap.lowerRate!
     : cap.defaultRate;
-  // Client: 20%/30%/40% out of the cost — use % of principal by band when unlocking lower rate
-  const unlockFeePct =
-    cap.nextOrdinal <= 3 ? 0.2 : cap.nextOrdinal <= 5 ? 0.3 : 0.4;
   const unlockFee = wantLower
-    ? Math.floor(principal * unlockFeePct)
+    ? Math.floor(principal * cap.lowerRateUnlockFeePct)
     : 0;
 
   const lender = getPlayer(state, lenderId);
@@ -200,10 +202,7 @@ export function takePlayerBorrow(
       };
     }
     if (p.id === borrowerId) {
-      return {
-        ...p,
-        cash: p.cash + principal - unlockFee,
-      };
+      return { ...p, cash: p.cash + principal - unlockFee };
     }
     return p;
   });
@@ -235,8 +234,95 @@ export function takePlayerBorrow(
     state: recordMoneyFromBorrows(withLoan, borrowerId, principal),
     note:
       `Player borrow ${principal} from ${lenderId} at +${premiumPercent}%` +
-      (wantLower ? ` (paid ${unlockFee} for lower rate)` : ` (default rate)`) +
+      (wantLower ? ` (paid ${unlockFee} for lower rate)` : "") +
       ` — borrow #${cap.nextOrdinal}/${cap.max}.`,
+  };
+}
+
+/** Lender offers cash others may borrow from (select amount on their turn). */
+export function postCashBorrowOffer(
+  state: MatchState,
+  lenderId: PlayerId,
+  principal: number,
+): BorrowActionResult {
+  if (principal <= 0) {
+    return { ok: false, state, reason: "Offer amount must be positive." };
+  }
+  const lender = getPlayer(state, lenderId);
+  if (lender.cash < principal) {
+    return {
+      ok: false,
+      state,
+      reason: `Need ${principal} cash to offer; have ${lender.cash}.`,
+    };
+  }
+  const id = `offer-${state.turnIndex}-${lenderId}-${state.cashBorrowOffers.length}`;
+  return {
+    ok: true,
+    state: {
+      ...state,
+      cashBorrowOffers: [
+        ...state.cashBorrowOffers,
+        {
+          id,
+          lenderId,
+          principalRemaining: principal,
+          createdAtTurnIndex: state.turnIndex,
+        },
+      ],
+    },
+    note: `${lenderId} offered ${principal} to borrow.`,
+  };
+}
+
+/**
+ * Active borrower selects how much to take from an open offer (≤ remaining).
+ */
+export function acceptCashBorrowOffer(
+  state: MatchState,
+  borrowerId: PlayerId,
+  offerId: string,
+  amount: number,
+  deliverAtTurnIndex: number | null = state.turnIndex + 4,
+  options?: { readonly unlockLowerRate?: boolean },
+): BorrowActionResult {
+  const offer = state.cashBorrowOffers.find((o) => o.id === offerId);
+  if (!offer) {
+    return { ok: false, state, reason: "Borrow offer not found." };
+  }
+  if (offer.lenderId === borrowerId) {
+    return { ok: false, state, reason: "Cannot accept your own offer." };
+  }
+  if (amount <= 0 || amount > offer.principalRemaining) {
+    return {
+      ok: false,
+      state,
+      reason: `Choose amount 1…${offer.principalRemaining}.`,
+    };
+  }
+
+  const borrowed = takePlayerBorrow(
+    state,
+    borrowerId,
+    offer.lenderId,
+    amount,
+    deliverAtTurnIndex,
+    options,
+  );
+  if (!borrowed.ok) return borrowed;
+
+  const remaining = offer.principalRemaining - amount;
+  const nextOffers =
+    remaining <= 0
+      ? borrowed.state.cashBorrowOffers.filter((o) => o.id !== offerId)
+      : borrowed.state.cashBorrowOffers.map((o) =>
+          o.id === offerId ? { ...o, principalRemaining: remaining } : o,
+        );
+
+  return {
+    ok: true,
+    state: { ...borrowed.state, cashBorrowOffers: nextOffers },
+    note: `${borrowed.note} (from offer ${offerId}).`,
   };
 }
 

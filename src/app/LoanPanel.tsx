@@ -1,10 +1,12 @@
 import { listLoanOffers, repayLoan, takeLoan } from "@domain/bankLoans";
 import {
+  acceptCashBorrowOffer,
   grantBoardBuildPermit,
   listBorrowCapacity,
-  takePlayerBorrow,
+  postCashBorrowOffer,
 } from "@domain/borrows";
 import { getActivePlayerId, type MatchState } from "@domain/match";
+import { useState } from "react";
 
 interface LoanPanelProps {
   match: MatchState;
@@ -17,16 +19,19 @@ export function LoanPanel({ match, onMatchChange }: LoanPanelProps) {
   const myLoans = match.activeLoans.filter((l) => l.borrowerId === activeId);
   const cap = listBorrowCapacity(match, activeId);
   const others = match.players.filter((p) => p.id !== activeId);
+  const [offerAmount, setOfferAmount] = useState(500);
+  const [takeAmount, setTakeAmount] = useState(500);
 
   return (
     <section className="side-panel loan-panel" aria-label="Bank loans">
       <h3>Bank &amp; borrows</h3>
       <p className="muted tiny">One Bank borrow per player. Player loans &amp; board permits below.</p>
       <p className="muted tiny">
-        Non-bank: {cap.used}/{cap.max} · default +{cap.defaultRate}%
+        Non-bank: {cap.used}/{cap.max} · next +{cap.defaultRate}%
         {cap.lowerRate != null
-          ? ` · pay ${cap.lowerRateUnlockFeePct * 100}% of principal → +${cap.lowerRate}%`
+          ? ` (or +${cap.lowerRate}% if pay ${cap.lowerRateUnlockFeePct * 100}% of amount)`
           : ""}
+        {" "}· #4–5 unlock with Deck 2
       </p>
 
       <ul className="loan-list">
@@ -91,60 +96,108 @@ export function LoanPanel({ match, onMatchChange }: LoanPanelProps) {
         </>
       )}
 
-      <h4>Type 1 — player cash borrow</h4>
+      <h4>Offer cash to lend</h4>
+      <p className="muted tiny">
+        Post an offer; on their turn another player selects how much to take (+{cap.defaultRate}% band for them).
+      </p>
+      <div className="hand-actions" style={{ marginBottom: "0.45rem" }}>
+        <input
+          type="number"
+          min={1}
+          value={offerAmount}
+          onChange={(e) => setOfferAmount(Number(e.target.value) || 0)}
+          className="amount-input"
+          aria-label="Offer amount"
+        />
+        <button
+          type="button"
+          className="hud-button compact"
+          onClick={() => {
+            const result = postCashBorrowOffer(match, activeId, offerAmount);
+            onMatchChange(result.state, result.ok ? result.note : result.reason);
+          }}
+        >
+          Offer
+        </button>
+      </div>
+
+      <h4>Open offers — select amount</h4>
       <ul className="loan-list">
-        {others.map((lender) => (
-          <li key={lender.id}>
-            <span>From {lender.displayName} (500)</span>
-            <span className="hand-actions">
-              <button
-                type="button"
-                className="hud-button compact"
-                disabled={cap.used >= cap.max}
-                onClick={() => {
-                  const result = takePlayerBorrow(
-                    match,
-                    activeId,
-                    lender.id,
-                    500,
-                    match.turnIndex + 4,
-                    { unlockLowerRate: false },
-                  );
-                  onMatchChange(
-                    result.state,
-                    result.ok ? result.note : result.reason,
-                  );
-                }}
-              >
-                +{cap.defaultRate}%
-              </button>
-              {cap.lowerRate != null && (
-                <button
-                  type="button"
-                  className="hud-button compact ghost"
-                  disabled={cap.used >= cap.max}
-                  title={`Pay ${cap.lowerRateUnlockFeePct * 100}% of principal to unlock lower rate`}
-                  onClick={() => {
-                    const result = takePlayerBorrow(
-                      match,
-                      activeId,
-                      lender.id,
-                      500,
-                      match.turnIndex + 4,
-                      { unlockLowerRate: true },
-                    );
-                    onMatchChange(
-                      result.state,
-                      result.ok ? result.note : result.reason,
-                    );
-                  }}
-                >
-                  Pay {cap.lowerRateUnlockFeePct * 100}%→+{cap.lowerRate}%
-                </button>
-              )}
-            </span>
+        {match.cashBorrowOffers.length === 0 && (
+          <li>
+            <span className="muted tiny">No open offers.</span>
           </li>
-        ))}
+        )}
+        {match.cashBorrowOffers.map((offer) => {
+          const lender = match.players.find((p) => p.id === offer.lenderId);
+          const isMine = offer.lenderId === activeId;
+          return (
+            <li key={offer.id}>
+              <div>
+                <strong>
+                  {lender?.displayName ?? offer.lenderId}: {offer.principalRemaining}
+                </strong>
+                <div className="muted tiny">Offer {offer.id}</div>
+              </div>
+              {!isMine && (
+                <span className="hand-actions">
+                  <input
+                    type="number"
+                    min={1}
+                    max={offer.principalRemaining}
+                    value={Math.min(takeAmount, offer.principalRemaining)}
+                    onChange={(e) => setTakeAmount(Number(e.target.value) || 0)}
+                    className="amount-input"
+                    aria-label="Take amount"
+                  />
+                  <button
+                    type="button"
+                    className="hud-button compact"
+                    disabled={cap.used >= cap.max}
+                    onClick={() => {
+                      const result = acceptCashBorrowOffer(
+                        match,
+                        activeId,
+                        offer.id,
+                        Math.min(takeAmount, offer.principalRemaining),
+                      );
+                      onMatchChange(
+                        result.state,
+                        result.ok ? result.note : result.reason,
+                      );
+                    }}
+                  >
+                    Take +{cap.defaultRate}%
+                  </button>
+                  {cap.lowerRate != null && (
+                    <button
+                      type="button"
+                      className="hud-button compact ghost"
+                      disabled={cap.used >= cap.max}
+                      title={`Pay ${cap.lowerRateUnlockFeePct * 100}% of amount for +${cap.lowerRate}%`}
+                      onClick={() => {
+                        const result = acceptCashBorrowOffer(
+                          match,
+                          activeId,
+                          offer.id,
+                          Math.min(takeAmount, offer.principalRemaining),
+                          match.turnIndex + 4,
+                          { unlockLowerRate: true },
+                        );
+                        onMatchChange(
+                          result.state,
+                          result.ok ? result.note : result.reason,
+                        );
+                      }}
+                    >
+                      Pay→+{cap.lowerRate}%
+                    </button>
+                  )}
+                </span>
+              )}
+            </li>
+          );
+        })}
       </ul>
 
       <h4>Type 2 — allow build on my board</h4>

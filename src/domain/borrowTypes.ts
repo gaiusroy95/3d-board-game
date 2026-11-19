@@ -1,5 +1,6 @@
 import type { BoardPosition, PlayerId } from "./board";
 
+/** Client: 40%; then #4–5 = 50% or 30%; #6–7 = 60% or 40%. */
 export type BorrowRateOption = 30 | 40 | 50 | 60;
 
 export interface BuildBorrow {
@@ -19,6 +20,17 @@ export interface PlayerBorrow {
   readonly deliverAtTurnIndex: number | null;
   readonly borrowOrdinal: number;
   readonly usedLowerRate: boolean;
+}
+
+/**
+ * Lender posts cash they are willing to lend.
+ * On the borrower's turn they select how much (≤ remaining) to take.
+ */
+export interface CashBorrowOffer {
+  readonly id: string;
+  readonly lenderId: PlayerId;
+  readonly principalRemaining: number;
+  readonly createdAtTurnIndex: number;
 }
 
 /**

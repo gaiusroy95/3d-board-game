@@ -1,17 +1,23 @@
-import { scoreForPlayer, type MatchState } from "./match";
+import {
+  refreshScorePeaks,
+  scoreForPlayer,
+  type MatchState,
+} from "./match";
 import type { PlayerId } from "./board";
 
 export type PlayerOutcome =
   | { readonly status: "playing" }
   | { readonly status: "lost"; readonly reason: string }
-  | { readonly status: "final-options"; readonly points: number }
+  | { readonly status: "winner"; readonly points: number; readonly reason: string }
   | { readonly status: "special-end-winner"; readonly points: number };
 
 export interface MatchOutcomeSummary {
   readonly byPlayer: Readonly<Record<PlayerId, PlayerOutcome>>;
   readonly specialEndTriggered: boolean;
   readonly specialEndWinnerId: PlayerId | null;
+  readonly pointsWinnerId: PlayerId | null;
   readonly note: string;
+  readonly state: MatchState;
 }
 
 function totalSpecialCardsRemaining(state: MatchState): number {
@@ -26,64 +32,109 @@ function totalSpecialCardsRemaining(state: MatchState): number {
   return inDecks + inHands;
 }
 
+/** Among candidates, pick highest score; tie → first who reached that score (earlier peak turn). */
+export function pickFirstOnTop(
+  state: MatchState,
+  candidateIds: readonly PlayerId[],
+): PlayerId | null {
+  let best: {
+    id: PlayerId;
+    points: number;
+    peakTurn: number;
+    order: number;
+  } | null = null;
+
+  for (const id of candidateIds) {
+    const player = state.players.find((p) => p.id === id);
+    if (!player) continue;
+    const points = scoreForPlayer(state, id);
+    const order = state.playerOrder.indexOf(id);
+    const peakTurn = player.scorePeakTurnIndex;
+    if (
+      !best ||
+      points > best.points ||
+      (points === best.points && peakTurn < best.peakTurn) ||
+      (points === best.points &&
+        peakTurn === best.peakTurn &&
+        order < best.order)
+    ) {
+      best = { id, points, peakTurn, order };
+    }
+  }
+  return best?.id ?? null;
+}
+
 /**
- * Evaluate win/lose thresholds after a turn or significant action.
- * Final-options menu content remains a UI stub (OPEN).
+ * Client D–F: 70 pts → you are the winner; ties → first on top.
  */
 export function evaluateMatchOutcomes(state: MatchState): MatchOutcomeSummary {
+  const peaked = refreshScorePeaks(state);
   const byPlayer: Record<string, PlayerOutcome> = {};
-  const threshold = state.rules.pointsThresholdForFinalOptions;
+  const threshold = peaked.rules.pointsThresholdForFinalOptions;
 
-  for (const player of state.players) {
-    if (state.rules.loseOnZeroLives && player.lives <= 0) {
+  const aliveIds: PlayerId[] = [];
+  for (const player of peaked.players) {
+    if (peaked.rules.loseOnZeroLives && player.lives <= 0) {
       byPlayer[player.id] = {
         status: "lost",
         reason: "Lives reached 0.",
       };
       continue;
     }
-    if (player.cash <= state.rules.loseOnCashAtOrBelow) {
+    if (player.cash <= peaked.rules.loseOnCashAtOrBelow) {
       byPlayer[player.id] = {
         status: "lost",
-        reason: `Cash ≤ ${state.rules.loseOnCashAtOrBelow}.`,
+        reason: `Cash ≤ ${peaked.rules.loseOnCashAtOrBelow}.`,
       };
       continue;
     }
-    const points = scoreForPlayer(state, player.id);
-    if (points >= threshold) {
-      byPlayer[player.id] = { status: "final-options", points };
-      continue;
-    }
+    aliveIds.push(player.id);
     byPlayer[player.id] = { status: "playing" };
   }
 
-  const specialEndTriggered = totalSpecialCardsRemaining(state) === 0;
-  let specialEndWinnerId: PlayerId | null = null;
-  if (specialEndTriggered) {
-    let best: { id: PlayerId; points: number } | null = null;
-    for (const player of state.players) {
-      if (byPlayer[player.id]?.status === "lost") continue;
-      const points = scoreForPlayer(state, player.id);
-      if (!best || points > best.points) {
-        best = { id: player.id, points };
-      }
+  const atThreshold = aliveIds.filter(
+    (id) => scoreForPlayer(peaked, id) >= threshold,
+  );
+  let pointsWinnerId: PlayerId | null = null;
+  if (atThreshold.length > 0) {
+    pointsWinnerId = pickFirstOnTop(peaked, atThreshold);
+    if (pointsWinnerId) {
+      byPlayer[pointsWinnerId] = {
+        status: "winner",
+        points: scoreForPlayer(peaked, pointsWinnerId),
+        reason: `Reached ${threshold}+ points (first on top if tied).`,
+      };
     }
-    if (best) {
-      specialEndWinnerId = best.id;
-      byPlayer[best.id] = {
+  }
+
+  const specialEndTriggered = totalSpecialCardsRemaining(peaked) === 0;
+  let specialEndWinnerId: PlayerId | null = null;
+  if (specialEndTriggered && !pointsWinnerId) {
+    specialEndWinnerId = pickFirstOnTop(peaked, aliveIds);
+    if (specialEndWinnerId) {
+      byPlayer[specialEndWinnerId] = {
         status: "special-end-winner",
-        points: best.points,
+        points: scoreForPlayer(peaked, specialEndWinnerId),
       };
     }
   }
 
   const lost = Object.values(byPlayer).filter((o) => o.status === "lost").length;
-  const finals = Object.values(byPlayer).filter(
-    (o) => o.status === "final-options",
+  const winners = Object.values(byPlayer).filter(
+    (o) => o.status === "winner" || o.status === "special-end-winner",
   ).length;
   const note = specialEndTriggered
     ? `Special end (0 special cards). Winner: ${specialEndWinnerId ?? "none"}.`
-    : `Outcomes: ${lost} lost, ${finals} at final-options (≥${threshold} pts).`;
+    : pointsWinnerId
+      ? `Winner: ${pointsWinnerId} (≥${threshold} pts).`
+      : `Outcomes: ${lost} lost, ${winners} winners.`;
 
-  return { byPlayer, specialEndTriggered, specialEndWinnerId, note };
+  return {
+    byPlayer,
+    specialEndTriggered,
+    specialEndWinnerId,
+    pointsWinnerId,
+    note,
+    state: peaked,
+  };
 }

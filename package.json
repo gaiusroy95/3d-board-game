@@ -2,7 +2,7 @@
   "name": "3d-board-game",
   "version": "0.1.0",
   "private": true,
-  "description": "Local Milestone 1 prototype: four-player desktop board game (Steam-targeted later)",
+  "description": "Four-player desktop board game — M3 online/Steam-targeted (Windows + Mac)",
   "main": "dist-electron/main.cjs",
   "type": "module",
   "scripts": {
@@ -14,6 +14,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "dist": "npm run build && electron-builder --win --dir",
+    "dist:mac": "npm run build && electron-builder --mac --dir",
     "preview": "vite preview"
   },
   "build": {
@@ -31,6 +32,12 @@
       "target": [
         "dir"
       ]
+    },
+    "mac": {
+      "target": [
+        "dir"
+      ],
+      "category": "public.app-category.games"
     }
   },
   "engines": {

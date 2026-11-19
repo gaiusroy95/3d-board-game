@@ -592,6 +592,38 @@ body::before {
   margin: 0.25rem 0 0.5rem;
 }
 
+.amount-input {
+  width: 5.5rem;
+  padding: 0.28rem 0.4rem;
+  border-radius: 6px;
+  border: 1px solid rgba(212, 176, 106, 0.35);
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--paper);
+  font-size: 0.8rem;
+}
+
+.lobby-layout {
+  display: grid;
+  gap: 1rem;
+  max-width: 720px;
+  margin: 1.5rem auto;
+  padding: 0 1rem;
+}
+
+.matchmaking-panel h2 {
+  margin-top: 0;
+}
+
+.turn-timer {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+  color: var(--brass);
+}
+
+.seat.is-local {
+  border-color: rgba(212, 176, 106, 0.55);
+}
+
 .hand-actions {
   display: flex;
   gap: 0.28rem;

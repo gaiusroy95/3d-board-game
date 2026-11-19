@@ -37,7 +37,7 @@ describe("non-bank borrows", () => {
     expect(listBorrowCapacity(d3, "p1").max).toBe(7);
   });
 
-  it("uses fixed default rates; lower rate only via pay unlock", () => {
+  it("uses 40%; #4–5 = 50/30; #6–7 = 60/40 (Deck2 unlocks #4–5)", () => {
     expect(rateOptionsForBorrowOrdinal(1)).toEqual([40]);
     expect(rateOptionsForBorrowOrdinal(4)).toEqual([50, 30]);
     expect(rateOptionsForBorrowOrdinal(7)).toEqual([60, 40]);

@@ -2,9 +2,9 @@ import type { BoardInteractionRequest } from "@domain/buildDestroy";
 import type { MatchState } from "@domain/match";
 
 /**
- * Future multiplayer sync contract.
- * Milestone 1: interface only — no network implementation.
- * Production must validate identity, turn, and legality server-side / host-authoritatively.
+ * Client sync façade.
+ * M3: prefer DedicatedMatchServer as authority; this interface is the
+ * transport-facing adapter (Steam/WebSocket later).
  */
 export interface MatchSyncService {
   getLocalMatch(): MatchState | null;

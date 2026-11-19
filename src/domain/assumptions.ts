@@ -19,7 +19,7 @@ export const M2Assumptions = {
   useBankPool: true,
   /** A9 */
   maxSpecialCardsPlayedPerTurn: 4,
-  /** A10 */
+  /** A10 — client D–F: Destroy stays disabled. */
   destroyEnabled: false,
   /**
    * A13 — client: Extra/limit scheme is **without limit**.

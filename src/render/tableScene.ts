@@ -32,6 +32,12 @@ export type ScenePick =
       owned: boolean;
     };
 
+export interface TableSceneOptions {
+  /** Client M3: normal players focus their own board. */
+  readonly focusPlayerId?: string | null;
+  readonly ownBoardOnly?: boolean;
+}
+
 export interface TableSceneHandle {
   readonly scene: THREE.Scene;
   readonly camera: THREE.PerspectiveCamera;
@@ -44,6 +50,7 @@ export interface TableSceneHandle {
     selection: SelectionHighlight | null,
     activePlayerId: string,
   ) => void;
+  setOwnBoardFocus: (playerId: string | null, ownBoardOnly: boolean) => void;
   pickObject: (clientX: number, clientY: number, dom: HTMLElement) => ScenePick | null;
   dispose: () => void;
 }
@@ -51,6 +58,7 @@ export interface TableSceneHandle {
 export function createTableScene(
   container: HTMLElement,
   match: MatchState,
+  options: TableSceneOptions = {},
 ): TableSceneHandle {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x050505);
@@ -115,6 +123,29 @@ export function createTableScene(
   });
 
   placeBoardsAroundTable(boards);
+
+  function applyOwnBoardFocus(
+    playerId: string | null,
+    ownBoardOnly: boolean,
+  ): void {
+    for (const board of boards) {
+      const isMine = playerId != null && board.ownerId === playerId;
+      board.group.visible = !ownBoardOnly || isMine || playerId == null;
+    }
+    if (playerId && ownBoardOnly) {
+      const mine = boards.find((b) => b.ownerId === playerId);
+      if (mine) {
+        const p = mine.group.position;
+        camera.position.set(p.x * 0.35, 8.5, p.z * 0.35 + (p.z >= 0 ? 6.5 : -6.5));
+        camera.lookAt(p.x, 0.2, p.z);
+      }
+    } else {
+      camera.position.set(0, 11.5, 10.5);
+      camera.lookAt(0, 0, 0);
+    }
+  }
+
+  applyOwnBoardFocus(options.focusPlayerId ?? null, options.ownBoardOnly === true);
 
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
@@ -211,6 +242,7 @@ export function createTableScene(
       renderer.render(scene, camera);
     },
     syncBoardVisuals,
+    setOwnBoardFocus: applyOwnBoardFocus,
     pickObject,
     dispose() {
       renderer.dispose();

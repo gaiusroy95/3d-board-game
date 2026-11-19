@@ -9,6 +9,7 @@ import {
 import type {
   BoardBuildAdvantage,
   BuildBorrow,
+  CashBorrowOffer,
   PlayerBorrow,
 } from "./borrowTypes";
 import {
@@ -32,6 +33,7 @@ import { scorePlayerTotal } from "./scoring";
 export type {
   BoardBuildAdvantage,
   BuildBorrow,
+  CashBorrowOffer,
   PlayerBorrow,
 } from "./borrowTypes";
 
@@ -100,6 +102,10 @@ export interface PlayerMatchState {
   readonly objectiveStats: PlayerObjectiveStats;
   /** Bank loan record lists (column/level sales, builds, recycle). */
   readonly bankRecords: PlayerBankRecords;
+  /** Last recorded total score (for first-to-top tie-break). */
+  readonly lastRecordedScore: number;
+  /** Turn index when current score was first reached. */
+  readonly scorePeakTurnIndex: number;
 }
 
 export interface LevelTurnState {
@@ -127,6 +133,8 @@ export interface MatchState {
   readonly turnIndex: number;
   readonly buildBorrows: readonly BuildBorrow[];
   readonly playerBorrows: readonly PlayerBorrow[];
+  /** Open lender offers — borrower selects amount on their turn. */
+  readonly cashBorrowOffers: readonly CashBorrowOffer[];
   /** Type-2: standing opponent builds that pay board owner 20%/turn. */
   readonly boardBuildAdvantages: readonly BoardBuildAdvantage[];
   /** Cells blocked by figurine skills: `${column}:${level}` → state. */
@@ -185,6 +193,8 @@ export function createFourPlayerMatch(input: {
       selectedRaceObjectives: [],
       objectiveStats: emptyObjectiveStats(),
       bankRecords: emptyBankRecords(),
+      lastRecordedScore: 0,
+      scorePeakTurnIndex: 0,
     };
   });
 
@@ -206,6 +216,7 @@ export function createFourPlayerMatch(input: {
     turnIndex: 0,
     buildBorrows: [],
     playerBorrows: [],
+    cashBorrowOffers: [],
     boardBuildAdvantages: [],
     blockedCells: {},
     overLevel5BonusActive: null,
@@ -234,6 +245,26 @@ export function scoreForPlayer(state: MatchState, playerId: PlayerId): number {
   return (
     scorePlayerTotal(player.board, player.ownedFigurines) + player.objectivePoints
   );
+}
+
+/**
+ * Stamp when each player's score rises — used for “first on top” ties.
+ */
+export function refreshScorePeaks(state: MatchState): MatchState {
+  return {
+    ...state,
+    players: state.players.map((p) => {
+      const score = scoreForPlayer(state, p.id);
+      if (score > p.lastRecordedScore) {
+        return {
+          ...p,
+          lastRecordedScore: score,
+          scorePeakTurnIndex: state.turnIndex,
+        };
+      }
+      return p;
+    }),
+  };
 }
 
 /**

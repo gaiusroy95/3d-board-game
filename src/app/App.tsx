@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { M2Assumptions } from "@domain/assumptions";
 import { takeBuildBorrow } from "@domain/borrows";
 import { applyBoardInteraction } from "@domain/buildDestroy";
 import { canOpenFigurinePopup } from "@domain/figurineActivation";
@@ -9,14 +8,26 @@ import {
   getActivePlayerId,
   type MatchState,
 } from "@domain/match";
+import { M3OnlineConfig } from "@domain/onlineConfig";
+import {
+  clearTurnTimer,
+  createOnlineMeta,
+  forceEndTurnIfTimedOut,
+  startTurnTimer,
+  turnTimeRemainingMs,
+  type OnlineMatchMeta,
+} from "@domain/onlineSession";
 import { endTurnWithPayout } from "@domain/turnLifecycle";
 import { evaluateMatchOutcomes } from "@domain/winLose";
 import { evaluateAllObjectives } from "@domain/objectives";
+import { DedicatedMatchServer } from "@interfaces/dedicatedServer";
+import type { ReadyMatchRoom } from "@interfaces/matchmaking";
 import { CardPanel } from "./CardPanel";
 import { FigurineActivateModal } from "./FigurineActivateModal";
 import { GameViewport } from "./GameViewport";
 import { LoanPanel } from "./LoanPanel";
 import { MatchHud } from "./MatchHud";
+import { MatchmakingPanel } from "./MatchmakingPanel";
 import { ObjectivesPanel } from "./ObjectivesPanel";
 import {
   initialMatchUiState,
@@ -24,78 +35,137 @@ import {
   type PickPayload,
 } from "./matchUi";
 
-type LoadState =
-  | { status: "loading" }
-  | { status: "ready"; match: MatchState }
-  | { status: "empty"; message: string }
+type AppPhase =
+  | { status: "lobby" }
+  | {
+      status: "playing";
+      match: MatchState;
+      mode: "local" | "online";
+      localPlayerId: string | null;
+      onlineMeta: OnlineMatchMeta | null;
+      server: DedicatedMatchServer | null;
+    }
   | { status: "error"; message: string };
 
 export function App() {
-  const [loadState, setLoadState] = useState<LoadState>({ status: "loading" });
+  const [phase, setPhase] = useState<AppPhase>({ status: "lobby" });
   const [ui, setUi] = useState<MatchUiState>(initialMatchUiState);
   const [outcomeBanner, setOutcomeBanner] = useState<string | null>(null);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      try {
-        const match = createFourPlayerMatch({
-          matchId: "local-prototype-1",
-          players: [
-            {
-              id: "p1",
-              displayName: "Player 1",
-              ownedFigurines: 1,
-              figurineSkills: [
-                { slotIndex: 0, skill1Learned: false, skill2Learned: false },
-              ],
-            },
-            { id: "p2", displayName: "Player 2" },
-            { id: "p3", displayName: "Player 3" },
-            { id: "p4", displayName: "Player 4" },
-          ],
-        });
-        setLoadState({ status: "ready", match });
-        setUi({
-          ...initialMatchUiState,
-          statusMessage:
-            "The table is open. Select a cell, Build, then End turn for Normal/Extra returns.",
-        });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Unknown startup error";
-        setLoadState({ status: "error", message });
-      }
-    }, 200);
-
-    return () => window.clearTimeout(timer);
-  }, []);
+  const [turnSecondsLeft, setTurnSecondsLeft] = useState<number | null>(null);
 
   const bridge = typeof window !== "undefined" ? window.desktopBridge : undefined;
+
+  const startLocalHotseat = () => {
+    try {
+      const match = createFourPlayerMatch({
+        matchId: "local-prototype-1",
+        players: [
+          {
+            id: "p1",
+            displayName: "Player 1",
+            ownedFigurines: 1,
+            figurineSkills: [
+              { slotIndex: 0, skill1Learned: false, skill2Learned: false },
+            ],
+          },
+          { id: "p2", displayName: "Player 2" },
+          { id: "p3", displayName: "Player 3" },
+          { id: "p4", displayName: "Player 4" },
+        ],
+      });
+      setPhase({
+        status: "playing",
+        match,
+        mode: "local",
+        localPlayerId: null,
+        onlineMeta: null,
+        server: null,
+      });
+      setUi({
+        ...initialMatchUiState,
+        statusMessage:
+          "Local hotseat. Select a cell, Build, then End turn for Normal/Extra returns.",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown startup error";
+      setPhase({ status: "error", message });
+    }
+  };
+
+  const startOnlineRoom = (room: ReadyMatchRoom, localPlayerId: string) => {
+    const server = new DedicatedMatchServer(room.players);
+    const meta = startTurnTimer(createOnlineMeta(localPlayerId, "player"));
+    setPhase({
+      status: "playing",
+      match: server.getState(),
+      mode: "online",
+      localPlayerId,
+      onlineMeta: meta,
+      server,
+    });
+    setUi({
+      ...initialMatchUiState,
+      statusMessage: `Online room ${room.roomId}. Own-board view · 3 min turns · disconnect = KO.`,
+    });
+  };
+
+  // Online turn timer tick
+  useEffect(() => {
+    if (phase.status !== "playing" || phase.mode !== "online" || !phase.onlineMeta) {
+      setTurnSecondsLeft(null);
+      return;
+    }
+    const tick = () => {
+      if (phase.status !== "playing" || !phase.onlineMeta) return;
+      const remaining = turnTimeRemainingMs(phase.onlineMeta);
+      setTurnSecondsLeft(
+        remaining == null ? null : Math.ceil(remaining / 1000),
+      );
+      if (remaining != null && remaining <= 0 && phase.server) {
+        const forced = forceEndTurnIfTimedOut(
+          phase.match,
+          phase.onlineMeta,
+        );
+        if (forced.forced) {
+          setPhase({
+            ...phase,
+            match: forced.state,
+            onlineMeta: forced.meta,
+          });
+          setUi((prev) => ({ ...prev, statusMessage: forced.note }));
+        }
+      }
+    };
+    tick();
+    const id = window.setInterval(tick, 500);
+    return () => window.clearInterval(id);
+  }, [phase]);
+
   const active =
-    loadState.status === "ready"
-      ? loadState.match.players.find(
-          (p) => p.id === getActivePlayerId(loadState.match),
-        )
+    phase.status === "playing"
+      ? phase.match.players.find((p) => p.id === getActivePlayerId(phase.match))
       : null;
 
   const applyMatch = (match: MatchState, note: string) => {
+    if (phase.status !== "playing") return;
     const claimed = evaluateAllObjectives(match);
-    const next = claimed.state;
+    const outcomes = evaluateMatchOutcomes(claimed.state);
+    const next = outcomes.state;
     const fullNote =
       claimed.notes.length > 0 ? `${note} ${claimed.notes.join(" ")}` : note;
-    setLoadState({ status: "ready", match: next });
+    setPhase({ ...phase, match: next });
     setUi((prev) => ({ ...prev, statusMessage: fullNote }));
-    const outcomes = evaluateMatchOutcomes(next);
     const interesting = Object.entries(outcomes.byPlayer).filter(
       ([, o]) => o.status !== "playing",
     );
-    if (outcomes.specialEndTriggered || interesting.length > 0) {
+    if (outcomes.specialEndTriggered || interesting.length > 0 || outcomes.pointsWinnerId) {
       setOutcomeBanner(outcomes.note);
     }
   };
 
   const onPick = (pick: PickPayload) => {
-    if (loadState.status !== "ready") return;
-    const match = loadState.match;
+    if (phase.status !== "playing") return;
+    const match = phase.match;
     const activeId = getActivePlayerId(match);
 
     if (pick.kind === "figurine-slot") {
@@ -119,6 +189,20 @@ export function App() {
       return;
     }
 
+    // M3 own-board: only select cells on your board when online
+    if (
+      phase.mode === "online" &&
+      phase.localPlayerId &&
+      pick.ownerId !== phase.localPlayerId &&
+      M3OnlineConfig.playerViewMode === "own-board"
+    ) {
+      setUi((prev) => ({
+        ...prev,
+        statusMessage: "Online play: you only interact with your own board.",
+      }));
+      return;
+    }
+
     setUi((prev) => ({
       ...prev,
       selectedCell: {
@@ -130,11 +214,33 @@ export function App() {
   };
 
   const onEndTurn = () => {
-    if (loadState.status !== "ready") return;
+    if (phase.status !== "playing") return;
+    if (phase.server) {
+      const result = phase.server.dispatch({
+        type: "end-turn",
+        playerId: getActivePlayerId(phase.match),
+      });
+      if (!result.ok) {
+        setUi((prev) => ({ ...prev, statusMessage: result.reason }));
+        return;
+      }
+      setPhase({
+        ...phase,
+        match: result.state,
+        onlineMeta: startTurnTimer(clearTurnTimer(result.meta)),
+      });
+      setUi((prev) => ({
+        ...prev,
+        statusMessage: result.note,
+        figurinePopup: null,
+      }));
+      setOutcomeBanner(evaluateMatchOutcomes(result.state).note);
+      return;
+    }
     const { state: next, payoutNote, outcomeNote } = endTurnWithPayout(
-      loadState.match,
+      phase.match,
     );
-    setLoadState({ status: "ready", match: next });
+    setPhase({ ...phase, match: next });
     setUi((prev) => ({
       ...prev,
       statusMessage: `${payoutNote} Next: ${getActivePlayerId(next)} · L${next.levelTurn.activeLevel}`,
@@ -144,8 +250,8 @@ export function App() {
   };
 
   const onBuild = () => {
-    if (loadState.status !== "ready") return;
-    const match = loadState.match;
+    if (phase.status !== "playing") return;
+    const match = phase.match;
     const activeId = getActivePlayerId(match);
     if (!ui.selectedCell) {
       setUi((prev) => ({
@@ -162,16 +268,13 @@ export function App() {
       position: ui.selectedCell.position,
       specialConditionOrCardSatisfied: actor?.canBuildOnOpponent ?? false,
     });
-    if (result.ok) {
-      applyMatch(result.state, result.note);
-    } else {
-      setUi((prev) => ({ ...prev, statusMessage: result.reason }));
-    }
+    if (result.ok) applyMatch(result.state, result.note);
+    else setUi((prev) => ({ ...prev, statusMessage: result.reason }));
   };
 
   const onDestroy = () => {
-    if (loadState.status !== "ready") return;
-    const match = loadState.match;
+    if (phase.status !== "playing") return;
+    const match = phase.match;
     const activeId = getActivePlayerId(match);
     if (!ui.selectedCell) {
       setUi((prev) => ({
@@ -193,8 +296,8 @@ export function App() {
   };
 
   const onActivateFigurineDemo = () => {
-    if (loadState.status !== "ready") return;
-    const match = loadState.match;
+    if (phase.status !== "playing") return;
+    const match = phase.match;
     const activeId = getActivePlayerId(match);
     const gate = canOpenFigurinePopup(match, activeId, 0);
     if (!gate.ok) {
@@ -209,17 +312,17 @@ export function App() {
   };
 
   const onUnlockFigurine = () => {
-    if (loadState.status !== "ready") return;
+    if (phase.status !== "playing") return;
     const result = tryUnlockNextFigurine(
-      loadState.match,
-      getActivePlayerId(loadState.match),
+      phase.match,
+      getActivePlayerId(phase.match),
     );
     if (result.ok) applyMatch(result.state, result.note);
     else setUi((prev) => ({ ...prev, statusMessage: result.reason }));
   };
 
   const onBuildBorrow = () => {
-    if (loadState.status !== "ready") return;
+    if (phase.status !== "playing") return;
     if (!ui.selectedCell) {
       setUi((prev) => ({
         ...prev,
@@ -228,8 +331,8 @@ export function App() {
       return;
     }
     const result = takeBuildBorrow(
-      loadState.match,
-      getActivePlayerId(loadState.match),
+      phase.match,
+      getActivePlayerId(phase.match),
       ui.selectedCell.position,
     );
     if (result.ok) applyMatch(result.state, result.note);
@@ -249,46 +352,49 @@ export function App() {
             others before the century turns.
           </p>
         </div>
-        {loadState.status === "ready" && (
+        {phase.status === "playing" && (
           <div className="header-meta">
             <div className="turn-pill" aria-live="polite">
               <span>Level</span>
-              <strong>L{loadState.match.levelTurn.activeLevel}</strong>
+              <strong>L{phase.match.levelTurn.activeLevel}</strong>
               <span>· {active?.displayName ?? "—"}</span>
+              {phase.mode === "online" && <span>· online</span>}
             </div>
             <div className="bank-chip">
-              Bank vault <strong>{loadState.match.bankBalance}</strong>
+              Bank vault <strong>{phase.match.bankBalance}</strong>
             </div>
           </div>
         )}
       </header>
 
       <main className="app-main" aria-live="polite">
-        {loadState.status === "loading" && (
-          <section className="state-panel state-loading">
-            <h2>Opening the table</h2>
-            <p>Dealing boards under the street lamps…</p>
-            <div className="loader-bar" aria-hidden="true">
-              <span />
-            </div>
-          </section>
+        {phase.status === "lobby" && (
+          <div className="lobby-layout">
+            <MatchmakingPanel onMatchReady={startOnlineRoom} />
+            <section className="state-panel">
+              <h2>Or play locally</h2>
+              <p className="muted tiny">
+                Hotseat on one machine (Milestone 2 table) — all boards visible.
+              </p>
+              <button
+                type="button"
+                className="hud-button primary"
+                onClick={startLocalHotseat}
+              >
+                Local table
+              </button>
+            </section>
+          </div>
         )}
 
-        {loadState.status === "empty" && (
-          <section className="state-panel state-empty">
-            <h2>Empty match</h2>
-            <p>{loadState.message}</p>
-          </section>
-        )}
-
-        {loadState.status === "error" && (
+        {phase.status === "error" && (
           <section className="state-panel state-error" role="alert">
             <h2>Startup error</h2>
-            <p>{loadState.message}</p>
+            <p>{phase.message}</p>
           </section>
         )}
 
-        {loadState.status === "ready" && (
+        {phase.status === "playing" && (
           <div className="viewport-wrap">
             {outcomeBanner && (
               <div className="outcome-banner" role="status">
@@ -298,7 +404,7 @@ export function App() {
             <div className="play-layout">
               <div className="stage-column">
                 <MatchHud
-                  match={loadState.match}
+                  match={phase.match}
                   selectedCell={ui.selectedCell}
                   statusMessage={ui.statusMessage}
                   onEndTurn={onEndTurn}
@@ -307,17 +413,29 @@ export function App() {
                   onActivateFigurineDemo={onActivateFigurineDemo}
                   onUnlockFigurine={onUnlockFigurine}
                   onBuildBorrow={onBuildBorrow}
+                  turnSecondsLeft={turnSecondsLeft}
+                  localPlayerId={phase.localPlayerId}
                 />
                 <div className="stage-frame">
                   <GameViewport
-                    match={loadState.match}
+                    match={phase.match}
                     selection={ui.selectedCell}
                     onPick={onPick}
+                    focusPlayerId={
+                      phase.mode === "online" ? phase.localPlayerId : null
+                    }
+                    ownBoardOnly={
+                      phase.mode === "online" &&
+                      M3OnlineConfig.playerViewMode === "own-board"
+                    }
                   />
                   <div className="stage-caption">
-                    <strong>The table</strong>
-                    Click a cell to select. Build costs cash into the Bank. End turn pays
-                    returns.
+                    <strong>
+                      {phase.mode === "online" ? "Your board" : "The table"}
+                    </strong>
+                    {phase.mode === "online"
+                      ? " Own-board view. 3-minute turns. Disconnect = knockout."
+                      : " Click a cell to select. Build costs cash into the Bank. End turn pays returns."}
                   </div>
                 </div>
               </div>
@@ -325,20 +443,20 @@ export function App() {
                 <p className="ledger-title">Street ledger</p>
                 <p className="ledger-sub">Cards · loans · objectives</p>
                 <CardPanel
-                  match={loadState.match}
+                  match={phase.match}
                   selectedCell={ui.selectedCell}
                   onMatchChange={applyMatch}
                 />
-                <LoanPanel match={loadState.match} onMatchChange={applyMatch} />
+                <LoanPanel match={phase.match} onMatchChange={applyMatch} />
                 <ObjectivesPanel
-                  match={loadState.match}
+                  match={phase.match}
                   onMatchChange={applyMatch}
                 />
               </aside>
             </div>
             {ui.figurinePopup && (
               <FigurineActivateModal
-                match={loadState.match}
+                match={phase.match}
                 popup={ui.figurinePopup}
                 onClose={() =>
                   setUi((prev) => ({ ...prev, figurinePopup: null }))
@@ -355,7 +473,10 @@ export function App() {
 
       <footer className="app-footer">
         <span>
-          Local four-player ·{" "}
+          {phase.status === "playing" && phase.mode === "online"
+            ? "M3 online stub · dedicated authority · Steam pending"
+            : "Local / lobby"}{" "}
+          ·{" "}
           {bridge ? `Desktop ${bridge.appPhase} (${bridge.platform})` : "browser preview"}
         </span>
       </footer>
