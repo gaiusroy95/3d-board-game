@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { takeBuildBorrow } from "@domain/borrows";
 import { applyBoardInteraction } from "@domain/buildDestroy";
 import { canOpenFigurinePopup } from "@domain/figurineActivation";
@@ -17,11 +17,14 @@ import {
   turnTimeRemainingMs,
   type OnlineMatchMeta,
 } from "@domain/onlineSession";
+import { evaluateAllObjectives } from "@domain/objectives";
 import { endTurnWithPayout } from "@domain/turnLifecycle";
 import { evaluateMatchOutcomes } from "@domain/winLose";
-import { evaluateAllObjectives } from "@domain/objectives";
-import { DedicatedMatchServer } from "@interfaces/dedicatedServer";
-import type { ReadyMatchRoom } from "@interfaces/matchmaking";
+import {
+  DedicatedMatchServer,
+  type ServerAction,
+} from "@interfaces/dedicatedServer";
+import type { RoomClient } from "@net/roomClient";
 import { CardPanel } from "./CardPanel";
 import { FigurineActivateModal } from "./FigurineActivateModal";
 import { GameViewport } from "./GameViewport";
@@ -29,6 +32,7 @@ import { LoanPanel } from "./LoanPanel";
 import { MatchHud } from "./MatchHud";
 import { MatchmakingPanel } from "./MatchmakingPanel";
 import { ObjectivesPanel } from "./ObjectivesPanel";
+import { RoomLobbyPanel, type RoomStartPayload } from "./RoomLobbyPanel";
 import {
   initialMatchUiState,
   type MatchUiState,
@@ -40,20 +44,57 @@ type AppPhase =
   | {
       status: "playing";
       match: MatchState;
-      mode: "local" | "online";
+      mode: "local" | "online" | "room";
       localPlayerId: string | null;
       onlineMeta: OnlineMatchMeta | null;
       server: DedicatedMatchServer | null;
+      roomClient: RoomClient | null;
+      isHost: boolean;
+      roomCode: string | null;
     }
   | { status: "error"; message: string };
+
+function commitMatch(
+  match: MatchState,
+  note: string,
+): { match: MatchState; note: string; banner: string | null } {
+  const claimed = evaluateAllObjectives(match);
+  const outcomes = evaluateMatchOutcomes(claimed.state);
+  const fullNote =
+    claimed.notes.length > 0 ? `${note} ${claimed.notes.join(" ")}` : note;
+  const interesting = Object.entries(outcomes.byPlayer).filter(
+    ([, o]) => o.status !== "playing",
+  );
+  const banner =
+    outcomes.specialEndTriggered ||
+    interesting.length > 0 ||
+    outcomes.pointsWinnerId
+      ? outcomes.note
+      : null;
+  return { match: outcomes.state, note: fullNote, banner };
+}
 
 export function App() {
   const [phase, setPhase] = useState<AppPhase>({ status: "lobby" });
   const [ui, setUi] = useState<MatchUiState>(initialMatchUiState);
   const [outcomeBanner, setOutcomeBanner] = useState<string | null>(null);
   const [turnSecondsLeft, setTurnSecondsLeft] = useState<number | null>(null);
+  const phaseRef = useRef(phase);
+  phaseRef.current = phase;
 
   const bridge = typeof window !== "undefined" ? window.desktopBridge : undefined;
+
+  const broadcastIfHost = (
+    match: MatchState,
+    note: string,
+    meta: OnlineMatchMeta | null,
+    client: RoomClient | null,
+    isHost: boolean,
+  ) => {
+    if (isHost && client) {
+      client.send({ type: "state", state: match, note, meta });
+    }
+  };
 
   const startLocalHotseat = () => {
     try {
@@ -80,6 +121,9 @@ export function App() {
         localPlayerId: null,
         onlineMeta: null,
         server: null,
+        roomClient: null,
+        isHost: true,
+        roomCode: null,
       });
       setUi({
         ...initialMatchUiState,
@@ -92,54 +136,199 @@ export function App() {
     }
   };
 
-  const startOnlineRoom = (room: ReadyMatchRoom, localPlayerId: string) => {
+  const startBotDemo = (
+    room: { roomId: string; players: readonly { id: string; displayName: string; ready: boolean; steamId: string | null }[] },
+    localPlayerId: string,
+  ) => {
     const server = new DedicatedMatchServer(room.players);
-    const meta = startTurnTimer(createOnlineMeta(localPlayerId, "player"));
     setPhase({
       status: "playing",
       match: server.getState(),
       mode: "online",
       localPlayerId,
-      onlineMeta: meta,
+      onlineMeta: startTurnTimer(createOnlineMeta(localPlayerId, "player")),
       server,
+      roomClient: null,
+      isHost: true,
+      roomCode: room.roomId,
     });
     setUi({
       ...initialMatchUiState,
-      statusMessage: `Online room ${room.roomId}. Own-board view · 3 min turns · disconnect = KO.`,
+      statusMessage: `Solo bot demo ${room.roomId}. Own-board · 3 min turns.`,
     });
   };
 
-  // Online turn timer tick
+  const startNetworkedRoom = (payload: RoomStartPayload) => {
+    const matchPlayers = payload.players.map((p) => ({
+      id: p.id,
+      displayName: p.displayName,
+      ready: p.ready,
+      steamId: null as string | null,
+    }));
+
+    let server: DedicatedMatchServer | null = null;
+    let match: MatchState;
+    let meta: OnlineMatchMeta;
+
+    if (payload.isHost) {
+      server = new DedicatedMatchServer(matchPlayers);
+      match = server.getState();
+      meta = startTurnTimer(createOnlineMeta(payload.localPlayerId, "player"));
+      payload.client.send({
+        type: "state",
+        state: match,
+        note: `Room ${payload.roomCode} started. Host authority.`,
+        meta,
+      });
+    } else {
+      match = createFourPlayerMatch({
+        matchId: `room-${payload.roomCode}`,
+        players: matchPlayers.map((p) => ({
+          id: p.id,
+          displayName: p.displayName,
+          ownedFigurines: 1,
+          figurineSkills: [
+            { slotIndex: 0, skill1Learned: false, skill2Learned: false },
+          ],
+        })),
+      });
+      meta = startTurnTimer(createOnlineMeta(payload.localPlayerId, "player"));
+    }
+
+    payload.client.handlers.onState = (msg) => {
+      const current = phaseRef.current;
+      if (current.status !== "playing" || current.mode !== "room") return;
+      if (current.isHost) return;
+      setPhase({
+        ...current,
+        match: msg.state,
+        onlineMeta: msg.meta ?? current.onlineMeta,
+      });
+      setUi((prev) => ({
+        ...prev,
+        statusMessage: msg.note || prev.statusMessage,
+      }));
+      const outcomes = evaluateMatchOutcomes(msg.state);
+      if (outcomes.pointsWinnerId || outcomes.specialEndTriggered) {
+        setOutcomeBanner(outcomes.note);
+      }
+    };
+
+    payload.client.handlers.onActionFrom = (fromPlayerId, action) => {
+      const current = phaseRef.current;
+      if (current.status !== "playing" || !current.isHost || !current.server) {
+        return;
+      }
+      const result = current.server.dispatch(action as ServerAction);
+      if (!result.ok) return;
+      const committed = commitMatch(result.state, result.note);
+      const nextMeta = startTurnTimer(clearTurnTimer(result.meta));
+      setPhase({
+        ...current,
+        match: committed.match,
+        onlineMeta: nextMeta,
+      });
+      setUi((prev) => ({ ...prev, statusMessage: committed.note }));
+      if (committed.banner) setOutcomeBanner(committed.banner);
+      broadcastIfHost(
+        committed.match,
+        committed.note,
+        nextMeta,
+        current.roomClient,
+        true,
+      );
+    };
+
+    payload.client.handlers.onDisconnectPlayer = (playerId) => {
+      const current = phaseRef.current;
+      if (current.status !== "playing" || !current.isHost || !current.server) {
+        return;
+      }
+      const result = current.server.dispatch({
+        type: "disconnect",
+        playerId,
+      });
+      const note = result.ok ? result.note : result.reason;
+      const committed = commitMatch(result.state, note);
+      setPhase({ ...current, match: committed.match });
+      setUi((prev) => ({ ...prev, statusMessage: committed.note }));
+      if (committed.banner) setOutcomeBanner(committed.banner);
+      broadcastIfHost(
+        committed.match,
+        committed.note,
+        current.onlineMeta,
+        current.roomClient,
+        true,
+      );
+    };
+
+    setPhase({
+      status: "playing",
+      match,
+      mode: "room",
+      localPlayerId: payload.localPlayerId,
+      onlineMeta: meta,
+      server,
+      roomClient: payload.client,
+      isHost: payload.isHost,
+      roomCode: payload.roomCode,
+    });
+    setUi({
+      ...initialMatchUiState,
+      statusMessage: payload.isHost
+        ? `Room ${payload.roomCode} — you are host. Waiting for synced play.`
+        : `Room ${payload.roomCode} — joined. Waiting for host state…`,
+    });
+  };
+
   useEffect(() => {
-    if (phase.status !== "playing" || phase.mode !== "online" || !phase.onlineMeta) {
+    if (
+      phase.status !== "playing" ||
+      (phase.mode !== "online" && phase.mode !== "room") ||
+      !phase.onlineMeta
+    ) {
       setTurnSecondsLeft(null);
       return;
     }
     const tick = () => {
-      if (phase.status !== "playing" || !phase.onlineMeta) return;
-      const remaining = turnTimeRemainingMs(phase.onlineMeta);
+      const current = phaseRef.current;
+      if (current.status !== "playing" || !current.onlineMeta) return;
+      const remaining = turnTimeRemainingMs(current.onlineMeta);
       setTurnSecondsLeft(
         remaining == null ? null : Math.ceil(remaining / 1000),
       );
-      if (remaining != null && remaining <= 0 && phase.server) {
+      if (
+        remaining != null &&
+        remaining <= 0 &&
+        current.isHost &&
+        current.server
+      ) {
         const forced = forceEndTurnIfTimedOut(
-          phase.match,
-          phase.onlineMeta,
+          current.match,
+          current.onlineMeta,
         );
         if (forced.forced) {
+          const committed = commitMatch(forced.state, forced.note);
           setPhase({
-            ...phase,
-            match: forced.state,
+            ...current,
+            match: committed.match,
             onlineMeta: forced.meta,
           });
-          setUi((prev) => ({ ...prev, statusMessage: forced.note }));
+          setUi((prev) => ({ ...prev, statusMessage: committed.note }));
+          broadcastIfHost(
+            committed.match,
+            committed.note,
+            forced.meta,
+            current.roomClient,
+            true,
+          );
         }
       }
     };
     tick();
     const id = window.setInterval(tick, 500);
     return () => window.clearInterval(id);
-  }, [phase]);
+  }, [phase.status, phase.status === "playing" ? phase.mode : null]);
 
   const active =
     phase.status === "playing"
@@ -148,19 +337,56 @@ export function App() {
 
   const applyMatch = (match: MatchState, note: string) => {
     if (phase.status !== "playing") return;
-    const claimed = evaluateAllObjectives(match);
-    const outcomes = evaluateMatchOutcomes(claimed.state);
-    const next = outcomes.state;
-    const fullNote =
-      claimed.notes.length > 0 ? `${note} ${claimed.notes.join(" ")}` : note;
-    setPhase({ ...phase, match: next });
-    setUi((prev) => ({ ...prev, statusMessage: fullNote }));
-    const interesting = Object.entries(outcomes.byPlayer).filter(
-      ([, o]) => o.status !== "playing",
-    );
-    if (outcomes.specialEndTriggered || interesting.length > 0 || outcomes.pointsWinnerId) {
-      setOutcomeBanner(outcomes.note);
+    if (phase.mode === "room" && !phase.isHost) {
+      setUi((prev) => ({
+        ...prev,
+        statusMessage: "Only the host applies ledger actions in test rooms — use Build / End turn on your turn (synced).",
+      }));
+      return;
     }
+    const committed = commitMatch(match, note);
+    setPhase({ ...phase, match: committed.match });
+    setUi((prev) => ({ ...prev, statusMessage: committed.note }));
+    if (committed.banner) setOutcomeBanner(committed.banner);
+    broadcastIfHost(
+      committed.match,
+      committed.note,
+      phase.onlineMeta,
+      phase.roomClient,
+      phase.isHost,
+    );
+  };
+
+  const runHostAction = (action: ServerAction) => {
+    if (phase.status !== "playing" || !phase.server) return;
+    const result = phase.server.dispatch(action);
+    if (!result.ok) {
+      setUi((prev) => ({ ...prev, statusMessage: result.reason }));
+      return;
+    }
+    const committed = commitMatch(result.state, result.note);
+    const nextMeta =
+      action.type === "end-turn"
+        ? startTurnTimer(clearTurnTimer(result.meta))
+        : result.meta;
+    setPhase({
+      ...phase,
+      match: committed.match,
+      onlineMeta: nextMeta,
+    });
+    setUi((prev) => ({
+      ...prev,
+      statusMessage: committed.note,
+      figurinePopup: action.type === "end-turn" ? null : prev.figurinePopup,
+    }));
+    if (committed.banner) setOutcomeBanner(committed.banner);
+    broadcastIfHost(
+      committed.match,
+      committed.note,
+      nextMeta,
+      phase.roomClient,
+      phase.isHost,
+    );
   };
 
   const onPick = (pick: PickPayload) => {
@@ -189,9 +415,8 @@ export function App() {
       return;
     }
 
-    // M3 own-board: only select cells on your board when online
     if (
-      phase.mode === "online" &&
+      (phase.mode === "online" || phase.mode === "room") &&
       phase.localPlayerId &&
       pick.ownerId !== phase.localPlayerId &&
       M3OnlineConfig.playerViewMode === "own-board"
@@ -215,28 +440,24 @@ export function App() {
 
   const onEndTurn = () => {
     if (phase.status !== "playing") return;
-    if (phase.server) {
-      const result = phase.server.dispatch({
-        type: "end-turn",
-        playerId: getActivePlayerId(phase.match),
-      });
-      if (!result.ok) {
-        setUi((prev) => ({ ...prev, statusMessage: result.reason }));
+    const activeId = getActivePlayerId(phase.match);
+
+    if (phase.mode === "room" && phase.roomClient) {
+      if (phase.localPlayerId !== activeId) {
+        setUi((prev) => ({ ...prev, statusMessage: "Not your turn." }));
         return;
       }
-      setPhase({
-        ...phase,
-        match: result.state,
-        onlineMeta: startTurnTimer(clearTurnTimer(result.meta)),
-      });
-      setUi((prev) => ({
-        ...prev,
-        statusMessage: result.note,
-        figurinePopup: null,
-      }));
-      setOutcomeBanner(evaluateMatchOutcomes(result.state).note);
+      const action: ServerAction = { type: "end-turn", playerId: activeId };
+      if (phase.isHost) runHostAction(action);
+      else phase.roomClient.send({ type: "action", action });
       return;
     }
+
+    if (phase.server) {
+      runHostAction({ type: "end-turn", playerId: activeId });
+      return;
+    }
+
     const { state: next, payoutNote, outcomeNote } = endTurnWithPayout(
       phase.match,
     );
@@ -260,39 +481,42 @@ export function App() {
       }));
       return;
     }
+    if (
+      (phase.mode === "online" || phase.mode === "room") &&
+      phase.localPlayerId &&
+      phase.localPlayerId !== activeId
+    ) {
+      setUi((prev) => ({ ...prev, statusMessage: "Not your turn." }));
+      return;
+    }
+
     const actor = match.players.find((p) => p.id === activeId);
-    const result = applyBoardInteraction(match, {
-      type: "build",
+    const request = {
+      type: "build" as const,
       actorId: activeId,
       targetOwnerId: ui.selectedCell.ownerId,
       position: ui.selectedCell.position,
       specialConditionOrCardSatisfied: actor?.canBuildOnOpponent ?? false,
-    });
+    };
+
+    if (phase.mode === "room" && phase.roomClient) {
+      const action: ServerAction = {
+        type: "build-interaction",
+        playerId: activeId,
+        request,
+      };
+      if (phase.isHost) runHostAction(action);
+      else phase.roomClient.send({ type: "action", action });
+      return;
+    }
+
+    const result = applyBoardInteraction(match, request);
     if (result.ok) applyMatch(result.state, result.note);
     else setUi((prev) => ({ ...prev, statusMessage: result.reason }));
   };
 
   const onDestroy = () => {
-    if (phase.status !== "playing") return;
-    const match = phase.match;
-    const activeId = getActivePlayerId(match);
-    if (!ui.selectedCell) {
-      setUi((prev) => ({
-        ...prev,
-        statusMessage: "Select a cell before Destroy.",
-      }));
-      return;
-    }
-    const result = applyBoardInteraction(match, {
-      type: "destroy",
-      actorId: activeId,
-      targetOwnerId: ui.selectedCell.ownerId,
-      position: ui.selectedCell.position,
-    });
-    setUi((prev) => ({
-      ...prev,
-      statusMessage: result.ok ? result.note : result.reason,
-    }));
+    setUi((prev) => ({ ...prev, statusMessage: "Destroy is disabled." }));
   };
 
   const onActivateFigurineDemo = () => {
@@ -339,6 +563,8 @@ export function App() {
     else setUi((prev) => ({ ...prev, statusMessage: result.reason }));
   };
 
+  const networked = phase.status === "playing" && phase.mode !== "local";
+
   return (
     <div className="app-shell">
       <header className="app-header">
@@ -358,7 +584,10 @@ export function App() {
               <span>Level</span>
               <strong>L{phase.match.levelTurn.activeLevel}</strong>
               <span>· {active?.displayName ?? "—"}</span>
-              {phase.mode === "online" && <span>· online</span>}
+              {phase.mode === "room" && phase.roomCode && (
+                <span>· room {phase.roomCode}</span>
+              )}
+              {phase.mode === "online" && <span>· bot demo</span>}
             </div>
             <div className="bank-chip">
               Bank vault <strong>{phase.match.bankBalance}</strong>
@@ -370,11 +599,12 @@ export function App() {
       <main className="app-main" aria-live="polite">
         {phase.status === "lobby" && (
           <div className="lobby-layout">
-            <MatchmakingPanel onMatchReady={startOnlineRoom} />
+            <RoomLobbyPanel onMatchStart={startNetworkedRoom} />
+            <MatchmakingPanel onMatchReady={startBotDemo} />
             <section className="state-panel">
               <h2>Or play locally</h2>
               <p className="muted tiny">
-                Hotseat on one machine (Milestone 2 table) — all boards visible.
+                Hotseat on one machine — all boards visible.
               </p>
               <button
                 type="button"
@@ -422,18 +652,18 @@ export function App() {
                     selection={ui.selectedCell}
                     onPick={onPick}
                     focusPlayerId={
-                      phase.mode === "online" ? phase.localPlayerId : null
+                      networked ? phase.localPlayerId : null
                     }
                     ownBoardOnly={
-                      phase.mode === "online" &&
+                      networked &&
                       M3OnlineConfig.playerViewMode === "own-board"
                     }
                   />
                   <div className="stage-caption">
                     <strong>
-                      {phase.mode === "online" ? "Your board" : "The table"}
+                      {networked ? "Your board" : "The table"}
                     </strong>
-                    {phase.mode === "online"
+                    {networked
                       ? " Own-board view. 3-minute turns. Disconnect = knockout."
                       : " Click a cell to select. Build costs cash into the Bank. End turn pays returns."}
                   </div>
@@ -473,9 +703,11 @@ export function App() {
 
       <footer className="app-footer">
         <span>
-          {phase.status === "playing" && phase.mode === "online"
-            ? "M3 online stub · dedicated authority · Steam pending"
-            : "Local / lobby"}{" "}
+          {phase.status === "playing" && phase.mode === "room"
+            ? `Lobby ${phase.roomCode}${phase.isHost ? " · host" : ""} · public · no Steam`
+            : phase.status === "playing" && phase.mode === "online"
+              ? "Solo bot demo · Steam pending"
+              : "Local / lobby"}{" "}
           ·{" "}
           {bridge ? `Desktop ${bridge.appPhase} (${bridge.platform})` : "browser preview"}
         </span>

@@ -61,11 +61,10 @@ export function MatchmakingPanel({ onMatchReady }: MatchmakingPanelProps) {
 
   return (
     <section className="state-panel matchmaking-panel" aria-label="Matchmaking">
-      <h2>Milestone 3 — Public matchmaking</h2>
+      <h2>Solo bot demo (1 PC)</h2>
       <p>
-        {M3OnlineConfig.playersPerMatch} players · starts when{" "}
-        {M3OnlineConfig.startWhenReadyCount} ready · host authority (M3) ·
-        own-board view · 3 min turn · disconnect = knockout
+        Pads with 3 bots when you Ready — useful alone. For 4 real players use{" "}
+        <strong>Public lobbies</strong> above.
       </p>
       <p className="muted tiny">{status}</p>
       <p className="muted tiny">Queue size: {queueSize}</p>
@@ -78,7 +77,7 @@ export function MatchmakingPanel({ onMatchReady }: MatchmakingPanelProps) {
             className="amount-input"
           />
           <button type="button" className="hud-button primary" onClick={joinQueue}>
-            Find match
+            Find match (bots)
           </button>
         </div>
       ) : (
@@ -87,8 +86,7 @@ export function MatchmakingPanel({ onMatchReady }: MatchmakingPanelProps) {
         </button>
       )}
       <p className="muted tiny" style={{ marginTop: "0.75rem" }}>
-        Platforms: Windows + Mac · Steam required (account pending) · Admin-only
-        spectators
+        {M3OnlineConfig.playersPerMatch} seats · Steam matchmaking later (App ID)
       </p>
     </section>
   );

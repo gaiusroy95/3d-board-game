@@ -21,10 +21,11 @@
       "@domain/*": ["./src/domain/*"],
       "@app/*": ["./src/app/*"],
       "@render/*": ["./src/render/*"],
-      "@interfaces/*": ["./src/interfaces/*"]
+      "@interfaces/*": ["./src/interfaces/*"],
+      "@net/*": ["./src/net/*"]
     },
     "noEmit": true
   },
-  "include": ["src/app", "src/domain", "src/render", "src/interfaces", "tests", "vite.config.ts", "vitest.config.ts"],
+  "include": ["src/app", "src/domain", "src/render", "src/interfaces", "src/net", "tests", "vite.config.ts", "vitest.config.ts"],
   "exclude": ["node_modules", "dist", "dist-electron", "release", "src/desktop"]
 }

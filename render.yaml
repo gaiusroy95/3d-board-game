@@ -1,0 +1,10 @@
+# Deploy lobby server on Render (free web service).
+# After deploy, set Vercel env VITE_ROOM_SERVER_URL=wss://YOUR-SERVICE.onrender.com
+services:
+  - type: web
+    name: board-game-lobbies
+    runtime: node
+    plan: free
+    buildCommand: npm install --omit=dev
+    startCommand: node scripts/room-server.mjs
+    healthCheckPath: /health

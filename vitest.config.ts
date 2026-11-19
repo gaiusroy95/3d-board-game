@@ -10,6 +10,7 @@ export default defineConfig({
       "@app": path.resolve(rootDir, "src/app"),
       "@render": path.resolve(rootDir, "src/render"),
       "@interfaces": path.resolve(rootDir, "src/interfaces"),
+      "@net": path.resolve(rootDir, "src/net"),
     },
   },
   test: {
