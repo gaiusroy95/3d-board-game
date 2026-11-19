@@ -32,13 +32,23 @@ export type RoomClientHandlers = {
   onConnection?: (status: "connecting" | "open" | "closed") => void;
 };
 
+/** Best-effort wake; never blocks WebSocket connect for long. */
 async function wakeLobbyServer(wsUrl: string): Promise<void> {
   const httpUrl = lobbiesHttpUrl(wsUrl);
   if (!httpUrl) return;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 4000);
   try {
-    await fetch(httpUrl, { method: "GET", mode: "cors", cache: "no-store" });
+    await fetch(httpUrl, {
+      method: "GET",
+      mode: "cors",
+      cache: "no-store",
+      signal: ctrl.signal,
+    });
   } catch {
-    // Wake may fail while Render cold-starts; WebSocket retries handle that.
+    /* ignore — WS path is authoritative */
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -48,8 +58,9 @@ export class RoomClient {
   private pending: ClientToServer[] = [];
   private intentionalClose = false;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private connectWatchdog: ReturnType<typeof setTimeout> | null = null;
   private attempt = 0;
-  private connecting = false;
+  private opening = false;
   handlers: RoomClientHandlers;
 
   constructor(handlers: RoomClientHandlers, url: string = defaultRoomServerUrl()) {
@@ -66,31 +77,65 @@ export class RoomClient {
     void this.openSocket();
   }
 
+  private clearConnectWatchdog(): void {
+    if (this.connectWatchdog) {
+      clearTimeout(this.connectWatchdog);
+      this.connectWatchdog = null;
+    }
+  }
+
   private async openSocket(): Promise<void> {
+    if (this.intentionalClose) return;
     if (
-      this.connecting ||
+      this.opening ||
       this.ws?.readyState === WebSocket.OPEN ||
       this.ws?.readyState === WebSocket.CONNECTING
     ) {
       return;
     }
-    this.connecting = true;
+
+    this.opening = true;
     this.handlers.onConnection?.("connecting");
     if (this.attempt > 0) {
       this.handlers.onError?.(
-        `Lobby server waking up (Render free tier)… retry ${this.attempt}/8`,
+        `Retrying lobby WebSocket (${this.attempt}/8) → ${this.url}`,
       );
     }
+
+    // Wake in parallel with a hard cap; never stall forever on fetch.
     await wakeLobbyServer(this.url);
     if (this.intentionalClose) {
-      this.connecting = false;
+      this.opening = false;
       return;
     }
 
-    const ws = new WebSocket(this.url);
+    let ws: WebSocket;
+    try {
+      ws = new WebSocket(this.url);
+    } catch (err) {
+      this.opening = false;
+      this.handlers.onError?.(
+        `WebSocket constructor failed for ${this.url}: ${String(err)}`,
+      );
+      this.scheduleReconnect();
+      return;
+    }
+
     this.ws = ws;
+    this.clearConnectWatchdog();
+    this.connectWatchdog = setTimeout(() => {
+      if (ws.readyState === WebSocket.CONNECTING) {
+        try {
+          ws.close();
+        } catch {
+          /* ignore */
+        }
+      }
+    }, 12_000);
+
     ws.onopen = () => {
-      this.connecting = false;
+      this.clearConnectWatchdog();
+      this.opening = false;
       this.attempt = 0;
       this.handlers.onConnection?.("open");
       for (const msg of this.pending) {
@@ -98,15 +143,24 @@ export class RoomClient {
       }
       this.pending = [];
     };
-    ws.onclose = () => {
-      this.connecting = false;
+
+    ws.onclose = (ev) => {
+      this.clearConnectWatchdog();
+      this.opening = false;
       this.handlers.onConnection?.("closed");
       this.ws = null;
-      if (!this.intentionalClose) this.scheduleReconnect();
+      if (!this.intentionalClose) {
+        this.handlers.onError?.(
+          `WebSocket closed (${ev.code}${ev.reason ? `: ${ev.reason}` : ""}). Reconnecting…`,
+        );
+        this.scheduleReconnect();
+      }
     };
+
     ws.onerror = () => {
-      // Browser fires error before close; reconnect path reports status.
+      // Close event follows; reconnect is scheduled there.
     };
+
     ws.onmessage = (ev) => {
       let msg: ServerToClient;
       try {
@@ -154,26 +208,27 @@ export class RoomClient {
     if (this.reconnectTimer || this.intentionalClose) return;
     if (this.attempt >= 8) {
       this.handlers.onError?.(
-        `Cannot reach lobby server at ${this.url}. Open /health on Render to wake it, then click Refresh.`,
+        `Cannot open WebSocket to ${this.url} from this browser. Check DevTools → Network → WS.`,
       );
       return;
     }
     this.attempt += 1;
-    const delay = Math.min(12_000, 1000 * 2 ** Math.min(this.attempt - 1, 3));
+    const delay = Math.min(10_000, 800 * 2 ** Math.min(this.attempt - 1, 3));
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       void this.openSocket();
     }, delay);
   }
 
-  /** Force a fresh connect (used by Refresh). */
   reconnect(): void {
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+    this.clearConnectWatchdog();
     this.intentionalClose = false;
     this.attempt = 0;
+    this.opening = false;
     try {
       this.ws?.close();
     } catch {
@@ -189,9 +244,14 @@ export class RoomClient {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+    this.clearConnectWatchdog();
     this.pending = [];
-    this.connecting = false;
-    this.ws?.close();
+    this.opening = false;
+    try {
+      this.ws?.close();
+    } catch {
+      /* ignore */
+    }
     this.ws = null;
   }
 
@@ -200,15 +260,13 @@ export class RoomClient {
       this.ws.send(JSON.stringify(msg));
       return;
     }
-    if (
-      this.ws?.readyState === WebSocket.CONNECTING ||
-      this.connecting ||
-      this.reconnectTimer
-    ) {
-      this.pending.push(msg);
-      return;
-    }
     this.pending.push(msg);
-    this.reconnect();
+    if (
+      this.ws?.readyState !== WebSocket.CONNECTING &&
+      !this.opening &&
+      !this.reconnectTimer
+    ) {
+      this.reconnect();
+    }
   }
 }

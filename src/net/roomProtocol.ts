@@ -94,7 +94,12 @@ export function defaultRoomServerUrl(): string {
     return "ws://127.0.0.1:4000";
   }
 
-  // Same-host LAN fallback (dev:web --host); Vercel needs VITE_ROOM_SERVER_URL.
+  // Production default (Vercel → Render lobby server).
+  if (host.endsWith(".vercel.app")) {
+    return "wss://threed-board-game.onrender.com";
+  }
+
+  // Same-host LAN fallback (dev:web --host).
   const proto = window.location.protocol === "https:" ? "wss" : "ws";
   return `${proto}://${host}:4000`;
 }
