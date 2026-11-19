@@ -34,6 +34,7 @@ function maxNonBankBorrows(state: MatchState): number {
   return 3;
 }
 
+/** Shared cap uses build + cash borrows still unpaid. */
 function countPlayerNonBankBorrows(state: MatchState, playerId: PlayerId): number {
   return (
     state.buildBorrows.filter((b) => b.borrowerId === playerId).length +
@@ -42,21 +43,47 @@ function countPlayerNonBankBorrows(state: MatchState, playerId: PlayerId): numbe
 }
 
 /**
- * Client Rules.txt + D–F:
- * #1–3 → +40% (Deck1 cap 3)
- * #4–5 → +50% or +30% (unlock when Deck 2 appears, cap 5)
- * #6–7 → +60% or +40% (Deck 3, cap 7)
+ * Active cash borrows only (money-source loans still unpaid).
+ * Client: active number changes when you pay back.
  */
+export function countActiveCashBorrows(
+  state: MatchState,
+  playerId: PlayerId,
+): number {
+  return state.playerBorrows.filter((b) => b.borrowerId === playerId).length;
+}
+
+/**
+ * Income % for a **new** cash borrow from current active count.
+ *
+ * Client:
+ * - base +40% while active ≤ 3 (after this borrow, active would be ≤ 3)
+ * - if active > 3 → +50% default, or +30% lower
+ * - if active > 5 → +60% default, or +40% lower
+ * Repay lowers active count and can return you to a cheaper band.
+ *
+ * `activeBeforeNew` = currently unpaid cash borrows before taking this one.
+ */
+export function ratesForActiveCashBorrowCount(activeBeforeNew: number): {
+  readonly defaultRate: BorrowRateOption;
+  readonly lowerRate: BorrowRateOption | null;
+} {
+  // Taking this loan → active becomes activeBeforeNew + 1
+  const activeAfter = activeBeforeNew + 1;
+  if (activeAfter <= 3) return { defaultRate: 40, lowerRate: null };
+  if (activeAfter <= 5) return { defaultRate: 50, lowerRate: 30 };
+  return { defaultRate: 60, lowerRate: 40 };
+}
+
+/** @deprecated alias — ordinal here means activeAfter (1-based). */
 export function ratesForBorrowOrdinal(ordinal: number): {
   readonly defaultRate: BorrowRateOption;
   readonly lowerRate: BorrowRateOption | null;
 } {
-  if (ordinal <= 3) return { defaultRate: 40, lowerRate: null };
-  if (ordinal <= 5) return { defaultRate: 50, lowerRate: 30 };
-  return { defaultRate: 60, lowerRate: 40 };
+  return ratesForActiveCashBorrowCount(Math.max(0, ordinal - 1));
 }
 
-/** @deprecated use ratesForBorrowOrdinal — kept for older tests */
+/** @deprecated use ratesForActiveCashBorrowCount */
 export function rateOptionsForBorrowOrdinal(
   ordinal: number,
 ): readonly BorrowRateOption[] {
@@ -70,6 +97,7 @@ export function listBorrowCapacity(
 ): {
   readonly used: number;
   readonly max: number;
+  readonly activeCashBorrows: number;
   readonly nextOrdinal: number;
   readonly defaultRate: BorrowRateOption;
   readonly lowerRate: BorrowRateOption | null;
@@ -77,14 +105,16 @@ export function listBorrowCapacity(
   readonly lowerRateUnlockFee: number;
 } {
   const used = countPlayerNonBankBorrows(state, playerId);
+  const activeCash = countActiveCashBorrows(state, playerId);
   const max = maxNonBankBorrows(state);
-  const nextOrdinal = used + 1;
-  const rates = ratesForBorrowOrdinal(nextOrdinal);
+  const nextOrdinal = activeCash + 1;
+  const rates = ratesForActiveCashBorrowCount(activeCash);
   const unlockFeePct =
     nextOrdinal <= 3 ? 0 : nextOrdinal <= 5 ? 0.3 : 0.4;
   return {
     used,
     max,
+    activeCashBorrows: activeCash,
     nextOrdinal,
     defaultRate: rates.defaultRate,
     lowerRate: rates.lowerRate,
@@ -133,7 +163,8 @@ export function takeBuildBorrow(
 }
 
 /**
- * Type 1 — cash borrow at 40% / 50% / 60% by ordinal.
+ * Type 1 — cash borrow (money source).
+ * Repay = amount taken + income % (40 / 50|30 / 60|40) from **active** count.
  * Preferred flow: lenders post offers; borrower selects amount on their turn.
  */
 export function takePlayerBorrow(
@@ -165,7 +196,7 @@ export function takePlayerBorrow(
     return {
       ok: false,
       state,
-      reason: "No lower rate for this borrow band (1–3 is fixed +40%).",
+      reason: "No lower rate while active cash borrows ≤ 3 (+40% only).",
     };
   }
 
@@ -213,6 +244,7 @@ export function takePlayerBorrow(
   }
 
   const id = `pb-${state.turnIndex}-${borrowerId}-${state.playerBorrows.length}`;
+  const due = Math.floor(principal * (1 + premiumPercent / 100));
   const withLoan = {
     ...next,
     playerBorrows: [
@@ -233,9 +265,9 @@ export function takePlayerBorrow(
     ok: true,
     state: recordMoneyFromBorrows(withLoan, borrowerId, principal),
     note:
-      `Player borrow ${principal} from ${lenderId} at +${premiumPercent}%` +
-      (wantLower ? ` (paid ${unlockFee} for lower rate)` : "") +
-      ` — borrow #${cap.nextOrdinal}/${cap.max}.`,
+      `Cash borrow ${principal} from ${lenderId}: repay ${due} (took + ${premiumPercent}% income)` +
+      (wantLower ? ` [paid ${unlockFee} for lower rate]` : "") +
+      ` — active will be ${cap.activeCashBorrows + 1} (cap ${cap.used + 1}/${cap.max}).`,
   };
 }
 

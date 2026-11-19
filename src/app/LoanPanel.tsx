@@ -27,11 +27,12 @@ export function LoanPanel({ match, onMatchChange }: LoanPanelProps) {
       <h3>Bank &amp; borrows</h3>
       <p className="muted tiny">One Bank borrow per player. Player loans &amp; board permits below.</p>
       <p className="muted tiny">
-        Non-bank: {cap.used}/{cap.max} · next +{cap.defaultRate}%
+        Active cash borrows: {cap.activeCashBorrows} · slot {cap.used}/{cap.max} ·
+        next income +{cap.defaultRate}%
         {cap.lowerRate != null
           ? ` (or +${cap.lowerRate}% if pay ${cap.lowerRateUnlockFeePct * 100}% of amount)`
           : ""}
-        {" "}· #4–5 unlock with Deck 2
+        {" "}· repay lowers active count · Deck2 cap 5 · Deck3 cap 7
       </p>
 
       <ul className="loan-list">

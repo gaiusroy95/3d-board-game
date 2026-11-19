@@ -96,9 +96,12 @@ describe("M3 online + borrow offers", () => {
     expect(result.ok).toBe(false);
   });
 
-  it("borrow rates are 40 then 50/30 then 60/40", () => {
-    expect(ratesForBorrowOrdinal(2).defaultRate).toBe(40);
-    expect(ratesForBorrowOrdinal(5)).toEqual({
+  it("borrow rates follow active count bands", () => {
+    expect(ratesForBorrowOrdinal(1)).toEqual({
+      defaultRate: 40,
+      lowerRate: null,
+    });
+    expect(ratesForBorrowOrdinal(4)).toEqual({
       defaultRate: 50,
       lowerRate: 30,
     });
