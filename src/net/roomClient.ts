@@ -1,5 +1,6 @@
 import {
   defaultRoomServerUrl,
+  lobbiesHttpUrl,
   type ClientToServer,
   type LobbySummary,
   type RoomPlayerInfo,
@@ -31,10 +32,24 @@ export type RoomClientHandlers = {
   onConnection?: (status: "connecting" | "open" | "closed") => void;
 };
 
+async function wakeLobbyServer(wsUrl: string): Promise<void> {
+  const httpUrl = lobbiesHttpUrl(wsUrl);
+  if (!httpUrl) return;
+  try {
+    await fetch(httpUrl, { method: "GET", mode: "cors", cache: "no-store" });
+  } catch {
+    // Wake may fail while Render cold-starts; WebSocket retries handle that.
+  }
+}
+
 export class RoomClient {
   private ws: WebSocket | null = null;
   private readonly url: string;
   private pending: ClientToServer[] = [];
+  private intentionalClose = false;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private attempt = 0;
+  private connecting = false;
   handlers: RoomClientHandlers;
 
   constructor(handlers: RoomClientHandlers, url: string = defaultRoomServerUrl()) {
@@ -47,28 +62,51 @@ export class RoomClient {
   }
 
   connect(): void {
+    this.intentionalClose = false;
+    void this.openSocket();
+  }
+
+  private async openSocket(): Promise<void> {
     if (
-      this.ws &&
-      (this.ws.readyState === WebSocket.OPEN ||
-        this.ws.readyState === WebSocket.CONNECTING)
+      this.connecting ||
+      this.ws?.readyState === WebSocket.OPEN ||
+      this.ws?.readyState === WebSocket.CONNECTING
     ) {
       return;
     }
+    this.connecting = true;
     this.handlers.onConnection?.("connecting");
+    if (this.attempt > 0) {
+      this.handlers.onError?.(
+        `Lobby server waking up (Render free tier)… retry ${this.attempt}/8`,
+      );
+    }
+    await wakeLobbyServer(this.url);
+    if (this.intentionalClose) {
+      this.connecting = false;
+      return;
+    }
+
     const ws = new WebSocket(this.url);
     this.ws = ws;
     ws.onopen = () => {
+      this.connecting = false;
+      this.attempt = 0;
       this.handlers.onConnection?.("open");
       for (const msg of this.pending) {
         ws.send(JSON.stringify(msg));
       }
       this.pending = [];
     };
-    ws.onclose = () => this.handlers.onConnection?.("closed");
-    ws.onerror = () =>
-      this.handlers.onError?.(
-        `Cannot reach lobby server at ${this.url}. Deploy room-server (WSS) and set VITE_ROOM_SERVER_URL.`,
-      );
+    ws.onclose = () => {
+      this.connecting = false;
+      this.handlers.onConnection?.("closed");
+      this.ws = null;
+      if (!this.intentionalClose) this.scheduleReconnect();
+    };
+    ws.onerror = () => {
+      // Browser fires error before close; reconnect path reports status.
+    };
     ws.onmessage = (ev) => {
       let msg: ServerToClient;
       try {
@@ -112,8 +150,47 @@ export class RoomClient {
     };
   }
 
+  private scheduleReconnect(): void {
+    if (this.reconnectTimer || this.intentionalClose) return;
+    if (this.attempt >= 8) {
+      this.handlers.onError?.(
+        `Cannot reach lobby server at ${this.url}. Open /health on Render to wake it, then click Refresh.`,
+      );
+      return;
+    }
+    this.attempt += 1;
+    const delay = Math.min(12_000, 1000 * 2 ** Math.min(this.attempt - 1, 3));
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      void this.openSocket();
+    }, delay);
+  }
+
+  /** Force a fresh connect (used by Refresh). */
+  reconnect(): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.intentionalClose = false;
+    this.attempt = 0;
+    try {
+      this.ws?.close();
+    } catch {
+      /* ignore */
+    }
+    this.ws = null;
+    void this.openSocket();
+  }
+
   disconnect(): void {
+    this.intentionalClose = true;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     this.pending = [];
+    this.connecting = false;
     this.ws?.close();
     this.ws = null;
   }
@@ -123,12 +200,15 @@ export class RoomClient {
       this.ws.send(JSON.stringify(msg));
       return;
     }
-    if (this.ws?.readyState === WebSocket.CONNECTING) {
+    if (
+      this.ws?.readyState === WebSocket.CONNECTING ||
+      this.connecting ||
+      this.reconnectTimer
+    ) {
       this.pending.push(msg);
       return;
     }
-    this.handlers.onError?.(
-      `Cannot reach lobby server at ${this.url}. Deploy room-server (WSS) and set VITE_ROOM_SERVER_URL.`,
-    );
+    this.pending.push(msg);
+    this.reconnect();
   }
 }

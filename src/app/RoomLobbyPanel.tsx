@@ -46,10 +46,13 @@ export function RoomLobbyPanel({ onMatchStart }: RoomLobbyPanelProps) {
         onConnection: (s) => {
           setConnected(s === "open");
           if (s === "open") setStatus("Connected — open lobbies update live.");
-          if (s === "connecting") setStatus(`Connecting to ${serverUrl}…`);
+          if (s === "connecting") {
+            setStatus(
+              `Connecting to ${serverUrl}… (Render free tier may take ~30–60s to wake)`,
+            );
+          }
           if (s === "closed") {
             setConnected(false);
-            setStatus("Disconnected from lobby server.");
           }
         },
         onError: (reason) => setStatus(reason),
@@ -136,7 +139,14 @@ export function RoomLobbyPanel({ onMatchStart }: RoomLobbyPanelProps) {
   };
 
   const refresh = () => {
-    clientRef.current?.send({ type: "list_lobbies" });
+    const client = clientRef.current;
+    if (!client) return;
+    if (!connected) {
+      setStatus("Reconnecting…");
+      client.reconnect();
+      return;
+    }
+    client.send({ type: "list_lobbies" });
   };
 
   return (
@@ -250,8 +260,8 @@ export function RoomLobbyPanel({ onMatchStart }: RoomLobbyPanelProps) {
       )}
 
       <p className="muted tiny" style={{ marginTop: "0.75rem" }}>
-        Works with the Vercel site once the lobby server is online (
-        <code>VITE_ROOM_SERVER_URL</code>). Steam App ID still required later for Steam
+        Server: <code>{serverUrl}</code>. Render free tier sleeps when idle — first
+        connect can take up to a minute. Steam App ID still required later for Steam
         matchmaking.
       </p>
     </section>
