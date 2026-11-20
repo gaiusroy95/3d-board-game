@@ -19,3 +19,5 @@ export * from "./winLose";
 export * from "./match";
 export * from "./turnLifecycle";
 export * from "./tournament";
+export * from "./tournamentPhase";
+export * from "./tournamentOps";

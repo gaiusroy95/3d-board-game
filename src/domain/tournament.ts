@@ -1,9 +1,19 @@
 /**
- * Tournament foundation: admin-managed 64 → 16 → 4 → 1.
- * Winner determination is supplied externally — never inferred here.
+ * Tournament system (M4): admin-managed 64 → 16 → 4 → 1.
+ * Locked client answers in CLIENT_ANSWERS_M4.md.
+ * Winner determination is supplied externally (match engine / demo record).
  */
 
+import { phasePresetFor } from "./tournamentPhase";
+
 export type TournamentStageId = "round1" | "round2" | "final";
+
+/** registration → locked (64 filled) → running → completed. No pause/cancel (client). */
+export type TournamentStatus =
+  | "registration"
+  | "ready"
+  | "running"
+  | "completed";
 
 export interface ScheduleEntry {
   readonly id: string;
@@ -16,15 +26,17 @@ export interface MatchParticipant {
   readonly playerId: string;
   readonly displayName: string;
   readonly seed?: number;
+  /** Late / disconnect / no-show knockout flag. */
+  readonly knockedOut: boolean;
 }
 
 export interface TournamentMatch {
   readonly id: string;
   readonly stageId: TournamentStageId;
   readonly participants: readonly MatchParticipant[];
-  /** Exactly one winner id when the match is complete; null while pending. */
   readonly winnerPlayerId: string | null;
   readonly schedule: ScheduleEntry | null;
+  readonly status: "pending" | "ready" | "completed";
 }
 
 export interface TournamentStage {
@@ -33,14 +45,32 @@ export interface TournamentStage {
   readonly matchCount: number;
   readonly advancingCount: number;
   readonly matches: readonly TournamentMatch[];
-  /** OPEN: phase starting points / settings. */
-  readonly phaseSettings: Record<string, unknown>;
+  readonly phaseSettings: ReturnType<typeof phasePresetFor>;
+}
+
+export interface TournamentEntrant {
+  readonly playerId: string;
+  readonly displayName: string;
+}
+
+/** Client: standings show winner, 2nd, 3rd. */
+export interface TournamentStandings {
+  readonly firstPlayerId: string | null;
+  readonly secondPlayerId: string | null;
+  readonly thirdPlayerId: string | null;
 }
 
 export interface Tournament {
   readonly id: string;
   readonly name: string;
+  readonly status: TournamentStatus;
+  readonly createdAtUtc: string;
+  /** Official schedule anchor (UTC). Display may convert to local. */
+  readonly scheduleTimezone: "UTC";
+  readonly startsAtUtc: string | null;
+  readonly roster: readonly TournamentEntrant[];
   readonly stages: readonly TournamentStage[];
+  readonly standings: TournamentStandings;
 }
 
 export const BRACKET_SHAPE = {
@@ -48,6 +78,8 @@ export const BRACKET_SHAPE = {
   round2: { entrants: 16, matches: 4, advancing: 4 },
   final: { entrants: 4, matches: 1, advancing: 1 },
 } as const;
+
+export const TOURNAMENT_ROSTER_SIZE = BRACKET_SHAPE.round1.entrants;
 
 export function assertFourParticipants(match: TournamentMatch): void {
   if (match.participants.length !== 4) {
@@ -65,54 +97,53 @@ export function createEmptyBracketMatches(
     participants: [],
     winnerPlayerId: null,
     schedule: null,
+    status: "pending" as const,
   }));
+}
+
+function emptyStages(): TournamentStage[] {
+  return (["round1", "round2", "final"] as const).map((id) => {
+    const shape = BRACKET_SHAPE[id];
+    return {
+      id,
+      entrantCount: shape.entrants,
+      matchCount: shape.matches,
+      advancingCount: shape.advancing,
+      matches: createEmptyBracketMatches(id, shape.matches),
+      phaseSettings: phasePresetFor(id),
+    };
+  });
 }
 
 export function createTournamentShell(input: {
   id: string;
   name: string;
+  createdAtUtc?: string;
 }): Tournament {
   return {
     id: input.id,
     name: input.name,
-    stages: [
-      {
-        id: "round1",
-        entrantCount: BRACKET_SHAPE.round1.entrants,
-        matchCount: BRACKET_SHAPE.round1.matches,
-        advancingCount: BRACKET_SHAPE.round1.advancing,
-        matches: createEmptyBracketMatches("round1", BRACKET_SHAPE.round1.matches),
-        phaseSettings: {},
-      },
-      {
-        id: "round2",
-        entrantCount: BRACKET_SHAPE.round2.entrants,
-        matchCount: BRACKET_SHAPE.round2.matches,
-        advancingCount: BRACKET_SHAPE.round2.advancing,
-        matches: createEmptyBracketMatches("round2", BRACKET_SHAPE.round2.matches),
-        phaseSettings: {},
-      },
-      {
-        id: "final",
-        entrantCount: BRACKET_SHAPE.final.entrants,
-        matchCount: BRACKET_SHAPE.final.matches,
-        advancingCount: BRACKET_SHAPE.final.advancing,
-        matches: createEmptyBracketMatches("final", BRACKET_SHAPE.final.matches),
-        phaseSettings: {},
-      },
-    ],
+    status: "registration",
+    createdAtUtc: input.createdAtUtc ?? new Date().toISOString(),
+    scheduleTimezone: "UTC",
+    startsAtUtc: null,
+    roster: [],
+    stages: emptyStages(),
+    standings: {
+      firstPlayerId: null,
+      secondPlayerId: null,
+      thirdPlayerId: null,
+    },
   };
 }
 
 export interface MatchResultInput {
   readonly matchId: string;
-  /** Authoritative winner from game rules / admin — not client self-declaration in production. */
   readonly winnerPlayerId: string;
 }
 
 /**
  * Given completed match results for a stage, return advancing winner ids in match order.
- * Does not invent winners; every match must include an explicit winner in `results`.
  */
 export function collectStageWinners(
   stage: TournamentStage,
@@ -145,8 +176,7 @@ export function collectStageWinners(
 }
 
 /**
- * Place advancing winners into the next stage as groups of 4.
- * Seeding policy is OPEN — uses input order.
+ * Place advancing winners into the next stage as groups of 4 (input order).
  */
 export function placeWinnersIntoNextStage(
   nextStage: TournamentStage,
@@ -167,13 +197,51 @@ export function placeWinnersIntoNextStage(
     const participants: MatchParticipant[] = slice.map((playerId) => ({
       playerId,
       displayName: displayNames?.[playerId] ?? playerId,
+      knockedOut: false,
     }));
     return {
       ...match,
       participants,
       winnerPlayerId: null,
+      status: "ready" as const,
     };
   });
 
   return { ...nextStage, matches };
+}
+
+export function findMatch(
+  tournament: Tournament,
+  matchId: string,
+): { stage: TournamentStage; match: TournamentMatch; stageIndex: number; matchIndex: number } | null {
+  for (let si = 0; si < tournament.stages.length; si++) {
+    const stage = tournament.stages[si]!;
+    const matchIndex = stage.matches.findIndex((m) => m.id === matchId);
+    if (matchIndex >= 0) {
+      return {
+        stage,
+        match: stage.matches[matchIndex]!,
+        stageIndex: si,
+        matchIndex,
+      };
+    }
+  }
+  return null;
+}
+
+export function displayNameMap(
+  tournament: Tournament,
+): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const e of tournament.roster) {
+    map[e.playerId] = e.displayName;
+  }
+  for (const stage of tournament.stages) {
+    for (const match of stage.matches) {
+      for (const p of match.participants) {
+        map[p.playerId] = p.displayName;
+      }
+    }
+  }
+  return map;
 }

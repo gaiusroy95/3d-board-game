@@ -33,6 +33,7 @@ import { MatchHud } from "./MatchHud";
 import { MatchmakingPanel } from "./MatchmakingPanel";
 import { ObjectivesPanel } from "./ObjectivesPanel";
 import { RoomLobbyPanel, type RoomStartPayload } from "./RoomLobbyPanel";
+import { TournamentPanel } from "./TournamentPanel";
 import {
   initialMatchUiState,
   type MatchUiState,
@@ -599,6 +600,7 @@ export function App() {
       <main className="app-main" aria-live="polite">
         {phase.status === "lobby" && (
           <div className="lobby-layout">
+            <TournamentPanel />
             <RoomLobbyPanel onMatchStart={startNetworkedRoom} />
             <MatchmakingPanel onMatchReady={startBotDemo} />
             <section className="state-panel">
