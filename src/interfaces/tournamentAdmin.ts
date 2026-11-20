@@ -1,8 +1,11 @@
 import type { Tournament, TournamentEntrant } from "@domain/tournament";
+import { generateStoreDiscountCode, type StoreDiscountCode } from "@domain/storeDiscountCodes";
+import { phasePresetFor } from "@domain/tournamentPhase";
 import {
   createTournament,
   fillRosterWithPlaceholders,
   knockOutParticipant,
+  markNoShow,
   recordMatchWinner,
   registerEntrant,
   replaceEntrantInMatch,
@@ -12,7 +15,18 @@ import {
   type TournamentOpResult,
 } from "@domain/tournamentOps";
 
+function withLatestPhasePresets(tournament: Tournament): Tournament {
+  return {
+    ...tournament,
+    stages: tournament.stages.map((s) => ({
+      ...s,
+      phaseSettings: phasePresetFor(s.id),
+    })),
+  };
+}
+
 const STORAGE_KEY = "m4.activeTournament";
+const PROMO_KEY = "m4.storeDiscountCodes";
 
 /**
  * Single active tournament store (client: only one at a time).
@@ -26,7 +40,9 @@ export class TournamentStore {
     try {
       const raw = window.localStorage.getItem(STORAGE_KEY);
       if (!raw) return this.tournament;
-      this.tournament = JSON.parse(raw) as Tournament;
+      this.tournament = withLatestPhasePresets(
+        JSON.parse(raw) as Tournament,
+      );
       return this.tournament;
     } catch {
       return this.tournament;
@@ -114,6 +130,30 @@ export class TournamentStore {
 
   setMatchTime(matchId: string, startsAtUtc: string): TournamentOpResult {
     return this.apply((t) => setMatchSchedule(t, matchId, startsAtUtc));
+  }
+
+  noShow(matchId: string, playerId: string): TournamentOpResult {
+    return this.apply((t) => markNoShow(t, matchId, playerId));
+  }
+
+  listDiscountCodes(): StoreDiscountCode[] {
+    if (typeof window === "undefined") return [];
+    try {
+      const raw = window.localStorage.getItem(PROMO_KEY);
+      return raw ? (JSON.parse(raw) as StoreDiscountCode[]) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  /** Client: ~25% store discount codes for other players (Steam redeem in M5). */
+  createDiscountCode(percentOff = 25): StoreDiscountCode {
+    const code = generateStoreDiscountCode(percentOff);
+    if (typeof window !== "undefined") {
+      const list = [code, ...this.listDiscountCodes()].slice(0, 50);
+      window.localStorage.setItem(PROMO_KEY, JSON.stringify(list));
+    }
+    return code;
   }
 
   /** Demo only — clear local tournament. Not a client “cancel” feature. */

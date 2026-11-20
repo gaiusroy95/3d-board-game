@@ -1,7 +1,18 @@
-import type { Tournament, TournamentMatch } from "@domain/tournament";
+import type { Tournament, TournamentMatch, TournamentStageId } from "@domain/tournament";
 import { listSchedule, stageLabel } from "@domain/tournamentOps";
+import { phasePresetFor } from "@domain/tournamentPhase";
+import type { StoreDiscountCode } from "@domain/storeDiscountCodes";
 import { tournamentStore } from "@interfaces/tournamentAdmin";
 import { useEffect, useState } from "react";
+
+export interface TournamentPlayRequest {
+  matchId: string;
+  stageId: TournamentStageId;
+}
+
+interface TournamentPanelProps {
+  onPlayPhaseMatch?: (request: TournamentPlayRequest) => void;
+}
 
 function nameOf(t: Tournament, playerId: string | null): string {
   if (!playerId) return "—";
@@ -26,16 +37,21 @@ function toLocalInputValue(iso: string | undefined): string {
 
 function MatchRow({
   match,
+  stageId,
   admin,
   onChanged,
+  onPlay,
 }: {
   match: TournamentMatch;
+  stageId: TournamentStageId;
   admin: boolean;
   onChanged: (note: string) => void;
+  onPlay?: (request: TournamentPlayRequest) => void;
 }) {
   const when = match.schedule
     ? new Date(match.schedule.startsAtUtc).toLocaleString()
     : "Unscheduled";
+  const preset = phasePresetFor(stageId);
 
   return (
     <li style={{ flexDirection: "column", alignItems: "stretch", gap: "0.35rem" }}>
@@ -60,7 +76,10 @@ function MatchRow({
             : "Seats empty"}
         </span>
         <br />
-        <span className="muted tiny">{when}</span>
+        <span className="muted tiny">
+          {when} · phase: {preset.label} (cash {preset.startingCash}, figurines{" "}
+          {preset.ownedFigurines} = {preset.startingFigurinePoints} pts)
+        </span>
       </span>
       {admin && match.status !== "completed" && (
         <div className="hand-actions" style={{ flexWrap: "wrap" }}>
@@ -76,17 +95,44 @@ function MatchRow({
               onChanged(r.ok ? r.note : r.reason);
             }}
           />
+          {match.participants
+            .filter((p) => !p.knockedOut)
+            .map((p) => (
+              <button
+                key={p.playerId}
+                type="button"
+                className="hud-button ghost compact"
+                title="No-show / late / disconnect → knockout"
+                onClick={() => {
+                  const r = tournamentStore.noShow(match.id, p.playerId);
+                  onChanged(r.ok ? r.note : r.reason);
+                }}
+              >
+                KO {p.displayName}
+              </button>
+            ))}
           {match.status === "ready" && match.participants.length === 4 && (
-            <button
-              type="button"
-              className="hud-button accent compact"
-              onClick={() => {
-                const r = tournamentStore.simulateWinner(match.id);
-                onChanged(r.ok ? r.note : r.reason);
-              }}
-            >
-              Record demo winner
-            </button>
+            <>
+              {onPlay && (
+                <button
+                  type="button"
+                  className="hud-button primary compact"
+                  onClick={() => onPlay({ matchId: match.id, stageId })}
+                >
+                  Play phase (local)
+                </button>
+              )}
+              <button
+                type="button"
+                className="hud-button accent compact"
+                onClick={() => {
+                  const r = tournamentStore.simulateWinner(match.id);
+                  onChanged(r.ok ? r.note : r.reason);
+                }}
+              >
+                Record demo winner
+              </button>
+            </>
           )}
         </div>
       )}
@@ -94,17 +140,19 @@ function MatchRow({
   );
 }
 
-export function TournamentPanel() {
+export function TournamentPanel({ onPlayPhaseMatch }: TournamentPanelProps) {
   const [tournament, setTournament] = useState<Tournament | null>(null);
   const [name, setName] = useState("Street Cup");
   const [entrantName, setEntrantName] = useState("");
   const [status, setStatus] = useState(
-    "Milestone 4 tournament — bracket & schedule (Steam match launch pending App ID).",
+    "Milestone 4 tournament — players must appear; no-show/late/disconnect = knockout. Steam match launch pending App ID.",
   );
   const [adminOpen, setAdminOpen] = useState(false);
+  const [codes, setCodes] = useState<StoreDiscountCode[]>([]);
 
   const refresh = (note?: string) => {
     setTournament(tournamentStore.getActive());
+    setCodes(tournamentStore.listDiscountCodes());
     if (note) setStatus(note);
   };
 
@@ -121,8 +169,8 @@ export function TournamentPanel() {
       <h2>Tournament (Milestone 4)</h2>
       <p>
         Admin-managed <strong>64 → 16 → 4 → 1</strong>. Public bracket &amp; schedule.
-        Match play on Steam waits for App ID — demo can record winners to advance the
-        bracket.
+        Live Steam matches wait for App ID — use <strong>Play phase (local)</strong> to
+        verify round presets, or record demo winners to advance the bracket.
       </p>
       <p className="muted tiny">{status}</p>
 
@@ -152,7 +200,8 @@ export function TournamentPanel() {
             <strong>{t.name}</strong>
             <span className="muted tiny">
               {" "}
-              · {t.status} · roster {t.roster.length}/64 · TZ {t.scheduleTimezone}
+              · {t.status} · roster {t.roster.length}/64 · schedule TZ{" "}
+              {t.scheduleTimezone} (shown in your local time)
             </span>
           </p>
 
@@ -204,8 +253,12 @@ export function TournamentPanel() {
                   <MatchRow
                     key={m.id}
                     match={m}
+                    stageId={stage.id}
                     admin={adminOpen}
                     onChanged={(note) => refresh(note)}
+                    {...(onPlayPhaseMatch
+                      ? { onPlay: onPlayPhaseMatch }
+                      : {})}
                   />
                 ))}
               </ul>
@@ -223,8 +276,9 @@ export function TournamentPanel() {
           {adminOpen && (
             <div className="pending-card" style={{ marginTop: "0.75rem" }}>
               <p className="muted tiny">
-                Admin demo controls (Steam login OPEN). One tournament only; no
-                pause/cancel. Results cannot be overridden once recorded.
+                Admin tools (Steam login later). One tournament only; no pause/cancel.
+                Results cannot be overridden. Players must appear — no-show/late/disconnect
+                = knockout (KO buttons on each match).
               </p>
 
               {(t.status === "registration" || t.status === "ready") && (
@@ -241,7 +295,8 @@ export function TournamentPanel() {
                       type="button"
                       className="hud-button accent"
                       onClick={() => {
-                        const displayName = entrantName.trim() || `Player ${t.roster.length + 1}`;
+                        const displayName =
+                          entrantName.trim() || `Player ${t.roster.length + 1}`;
                         const r = tournamentStore.register({
                           playerId: `p-${Date.now().toString(36)}`,
                           displayName,
@@ -278,12 +333,34 @@ export function TournamentPanel() {
                 </>
               )}
 
-              {t.status === "running" && (
+              <div style={{ marginTop: "0.75rem" }}>
+                <p className="ledger-sub">Store discount codes (−25%)</p>
                 <p className="muted tiny">
-                  Use <strong>Record demo winner</strong> on ready matches to advance.
-                  Steam match launch later. Knockout = mark via code path (late/disconnect).
+                  Generated for other players’ store price. Steam redeem comes in M5.
                 </p>
-              )}
+                <button
+                  type="button"
+                  className="hud-button accent compact"
+                  onClick={() => {
+                    const code = tournamentStore.createDiscountCode(25);
+                    refresh(`Discount code ${code.code} (−${code.percentOff}%).`);
+                  }}
+                >
+                  Generate 25% code
+                </button>
+                {codes.length > 0 && (
+                  <ul className="loan-list" style={{ marginTop: "0.35rem" }}>
+                    {codes.slice(0, 5).map((c) => (
+                      <li key={c.code}>
+                        <span>
+                          <code>{c.code}</code>
+                          <span className="muted tiny"> −{c.percentOff}%</span>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
 
               <button
                 type="button"

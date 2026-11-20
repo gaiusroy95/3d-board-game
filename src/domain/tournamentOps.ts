@@ -4,7 +4,8 @@
  * - No pause/cancel/restart.
  * - Random Round 1 seating when 64 registered.
  * - Auto-advance on stage completion; no admin result override after recorded.
- * - Late/disconnect → knockout flag (winner still reported among active seats for demo).
+ * - No-show / late / disconnect → knockout (client). Players must appear at match time.
+ * - If only one non-KO seat remains, that player wins the match automatically.
  */
 
 import {
@@ -260,12 +261,17 @@ export function knockOutParticipant(
   if (found.match.status === "completed") {
     return { ok: false, tournament, reason: "Match already completed." };
   }
-  const participants = found.match.participants.map((p) =>
-    p.playerId === playerId ? { ...p, knockedOut: true } : p,
-  );
   if (!found.match.participants.some((p) => p.playerId === playerId)) {
     return { ok: false, tournament, reason: "Player not in match." };
   }
+  const already = found.match.participants.find((p) => p.playerId === playerId);
+  if (already?.knockedOut) {
+    return { ok: false, tournament, reason: "Player already knocked out." };
+  }
+
+  const participants = found.match.participants.map((p) =>
+    p.playerId === playerId ? { ...p, knockedOut: true } : p,
+  );
 
   const match = { ...found.match, participants };
   const stage = {
@@ -277,12 +283,31 @@ export function knockOutParticipant(
   const stages = tournament.stages.map((s, i) =>
     i === found.stageIndex ? stage : s,
   );
+  let next: Tournament = { ...tournament, stages };
+  const active = participants.filter((p) => !p.knockedOut);
+  let note = `${already?.displayName ?? playerId} knocked out (no-show/late/disconnect) in ${matchId}.`;
 
-  return {
-    ok: true,
-    tournament: { ...tournament, stages },
-    note: `${playerId} knocked out in ${matchId}.`,
-  };
+  if (active.length === 1) {
+    const auto = recordMatchWinner(next, matchId, active[0]!.playerId);
+    if (auto.ok) {
+      return {
+        ok: true,
+        tournament: auto.tournament,
+        note: `${note} Last remaining player wins automatically.`,
+      };
+    }
+  }
+
+  return { ok: true, tournament: next, note };
+}
+
+/** Alias: player never appeared at scheduled time. */
+export function markNoShow(
+  tournament: Tournament,
+  matchId: string,
+  playerId: string,
+): TournamentOpResult {
+  return knockOutParticipant(tournament, matchId, playerId);
 }
 
 /**

@@ -55,6 +55,8 @@ describe("M4 tournament bracket", () => {
     const fin = t.stages.find((s) => s.id === "final")!;
     expect(fin.matches[0]!.participants).toHaveLength(4);
     expect(fin.phaseSettings.startingCash).toBe(4000);
+    expect(fin.phaseSettings.ownedFigurines).toBe(2);
+    expect(fin.phaseSettings.startingFigurinePoints).toBe(10);
 
     const champ = fin.matches[0]!.participants[0]!.playerId;
     const done = recordMatchWinner(t, fin.matches[0]!.id, champ);

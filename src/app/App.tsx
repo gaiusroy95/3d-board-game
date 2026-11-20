@@ -18,12 +18,15 @@ import {
   type OnlineMatchMeta,
 } from "@domain/onlineSession";
 import { evaluateAllObjectives } from "@domain/objectives";
+import { findMatch } from "@domain/tournament";
+import { createMatchFromTournamentSeat } from "@domain/tournamentMatchStart";
 import { endTurnWithPayout } from "@domain/turnLifecycle";
 import { evaluateMatchOutcomes } from "@domain/winLose";
 import {
   DedicatedMatchServer,
   type ServerAction,
 } from "@interfaces/dedicatedServer";
+import { tournamentStore } from "@interfaces/tournamentAdmin";
 import type { RoomClient } from "@net/roomClient";
 import { CardPanel } from "./CardPanel";
 import { FigurineActivateModal } from "./FigurineActivateModal";
@@ -33,7 +36,7 @@ import { MatchHud } from "./MatchHud";
 import { MatchmakingPanel } from "./MatchmakingPanel";
 import { ObjectivesPanel } from "./ObjectivesPanel";
 import { RoomLobbyPanel, type RoomStartPayload } from "./RoomLobbyPanel";
-import { TournamentPanel } from "./TournamentPanel";
+import { TournamentPanel, type TournamentPlayRequest } from "./TournamentPanel";
 import {
   initialMatchUiState,
   type MatchUiState,
@@ -133,6 +136,48 @@ export function App() {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown startup error";
+      setPhase({ status: "error", message });
+    }
+  };
+
+  /** Local verification of tournament phase presets (Steam launch later). */
+  const startTournamentPhaseMatch = (request: TournamentPlayRequest) => {
+    try {
+      const tournament = tournamentStore.getActive();
+      if (!tournament) {
+        setUi((prev) => ({
+          ...prev,
+          statusMessage: "No active tournament.",
+        }));
+        return;
+      }
+      const found = findMatch(tournament, request.matchId);
+      if (!found || found.match.participants.length !== 4) {
+        setUi((prev) => ({
+          ...prev,
+          statusMessage: "Match not ready (need 4 seated players).",
+        }));
+        return;
+      }
+      const match = createMatchFromTournamentSeat(found.match, request.stageId);
+      const preset = found.stage.phaseSettings;
+      setPhase({
+        status: "playing",
+        match,
+        mode: "local",
+        localPlayerId: null,
+        onlineMeta: null,
+        server: null,
+        roomClient: null,
+        isHost: true,
+        roomCode: request.matchId,
+      });
+      setUi({
+        ...initialMatchUiState,
+        statusMessage: `Tournament ${request.matchId} · ${preset.label}. Cash ${preset.startingCash}, figurines ${preset.ownedFigurines} (${preset.startingFigurinePoints} pts). Steam online launch pending App ID.`,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Tournament match error";
       setPhase({ status: "error", message });
     }
   };
@@ -600,7 +645,7 @@ export function App() {
       <main className="app-main" aria-live="polite">
         {phase.status === "lobby" && (
           <div className="lobby-layout">
-            <TournamentPanel />
+            <TournamentPanel onPlayPhaseMatch={startTournamentPhaseMatch} />
             <RoomLobbyPanel onMatchStart={startNetworkedRoom} />
             <MatchmakingPanel onMatchReady={startBotDemo} />
             <section className="state-panel">

@@ -1,7 +1,6 @@
 /**
  * Tournament phase starting presets (client M4 answers).
- * OPEN: Final figurine unlocks / points not stated — only board + cash applied.
- * ASSUMPTION: presets apply identically to every seat at match start.
+ * Presets apply identically to every player’s own board at match start.
  */
 
 import type { ColumnId, Level } from "./board";
@@ -19,11 +18,11 @@ export interface TournamentPhasePreset {
   readonly startingCash: number;
   /** Pre-unlocked figurine count (0..7). */
   readonly ownedFigurines: number;
-  /** Points already on the board from pre-built Level 5s / figurines — informational. */
+  /** Expected figurine points at start (ownedFigurines × 5). */
   readonly startingFigurinePoints: number;
   /**
    * Highest built level per column at match start (empty = none).
-   * Builds are attributed to the board owner for scoring.
+   * Builds are attributed to the board owner.
    */
   readonly columnLevels: Readonly<Partial<Record<ColumnId, Level>>>;
   readonly notes: string;
@@ -57,19 +56,18 @@ export const PHASE_ROUND2: TournamentPhasePreset = {
     whisky: 1,
   },
   notes:
-    "Client: figurines 1 and 2 achieved (10 points); vine L3 rum L2 other three L1; cash 3000.",
+    "Figurines 1–2 unlocked (10 pts); Wine L3, Rum L2, other columns L1; cash 3000.",
 };
 
 /**
- * Final — Wine/Rum/Tequila L3, Vodka L2, Whisky L1, cash 4000.
- * OPEN: figurine unlocks for Final not specified.
+ * Final — 2 figurines (10 pts), Wine/Rum/Tequila L3, Vodka L2, Whisky L1, cash 4000.
  */
 export const PHASE_FINAL: TournamentPhasePreset = {
   stageId: "final",
-  label: "Final",
+  label: "Final — figurines 1–2",
   startingCash: 4000,
-  ownedFigurines: 0,
-  startingFigurinePoints: 0,
+  ownedFigurines: 2,
+  startingFigurinePoints: 10,
   columnLevels: {
     wine: 3,
     rum: 3,
@@ -78,7 +76,7 @@ export const PHASE_FINAL: TournamentPhasePreset = {
     whisky: 1,
   },
   notes:
-    "Client: vine L3 rum L3 tequila L3 vodka L2 whiskey L1 cash 4000. Figurine start OPEN.",
+    "Client: 2 figurines at Final (start 10 points); Wine L3, Rum L3, Tequila L3, Vodka L2, Whisky L1; cash 4000.",
 };
 
 export const TOURNAMENT_PHASE_PRESETS: Readonly<
