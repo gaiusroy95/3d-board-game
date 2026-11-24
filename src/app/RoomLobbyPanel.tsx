@@ -150,11 +150,15 @@ export function RoomLobbyPanel({ onMatchStart }: RoomLobbyPanelProps) {
   };
 
   return (
-    <section className="state-panel matchmaking-panel" aria-label="Public lobbies">
-      <h2>Public lobbies (no Steam)</h2>
-      <p>
-        Open the site from anywhere, create a lobby or join an open one. Match starts when{" "}
-        {M3OnlineConfig.playersPerMatch} players are ready — no host IP or access code.
+    <section
+      className="state-panel lobby-card matchmaking-panel"
+      aria-label="Public lobbies"
+    >
+      <p className="lobby-card-kicker">Online</p>
+      <h2>Public lobbies</h2>
+      <p className="lobby-card-lead">
+        Create or join a room — match starts when{" "}
+        {M3OnlineConfig.playersPerMatch} players are ready.
       </p>
       <p className="muted tiny">{status}</p>
 
@@ -260,9 +264,7 @@ export function RoomLobbyPanel({ onMatchStart }: RoomLobbyPanelProps) {
       )}
 
       <p className="muted tiny" style={{ marginTop: "0.75rem" }}>
-        Server: <code>{serverUrl}</code>. Render free tier sleeps when idle — first
-        connect can take up to a minute. Steam App ID still required later for Steam
-        matchmaking.
+        Server <code className="lobby-code">{serverUrl}</code>
       </p>
     </section>
   );

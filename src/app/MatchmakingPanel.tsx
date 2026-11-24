@@ -17,7 +17,7 @@ export function MatchmakingPanel({ onMatchReady }: MatchmakingPanelProps) {
   const [ticket, setTicket] = useState<MatchmakingTicket | null>(null);
   const [queueSize, setQueueSize] = useState(0);
   const [status, setStatus] = useState(
-    "Public matchmaking — Steam login later when App ID is ready.",
+    "Enter a name, then find a practice match.",
   );
 
   const refresh = () => setQueueSize(queueSingleton.getQueue().length);
@@ -60,11 +60,14 @@ export function MatchmakingPanel({ onMatchReady }: MatchmakingPanelProps) {
   };
 
   return (
-    <section className="state-panel matchmaking-panel" aria-label="Matchmaking">
-      <h2>Solo bot demo (1 PC)</h2>
-      <p>
-        Pads with 3 bots when you Ready — useful alone. For 4 real players use{" "}
-        <strong>Public lobbies</strong> above.
+    <section
+      className="state-panel lobby-card matchmaking-panel"
+      aria-label="Matchmaking"
+    >
+      <p className="lobby-card-kicker">Practice</p>
+      <h2>Solo vs bots</h2>
+      <p className="lobby-card-lead">
+        You take one seat; three bots fill the rest.
       </p>
       <p className="muted tiny">{status}</p>
       <p className="muted tiny">Queue size: {queueSize}</p>
@@ -86,7 +89,7 @@ export function MatchmakingPanel({ onMatchReady }: MatchmakingPanelProps) {
         </button>
       )}
       <p className="muted tiny" style={{ marginTop: "0.75rem" }}>
-        {M3OnlineConfig.playersPerMatch} seats · Steam matchmaking later (App ID)
+        {M3OnlineConfig.playersPerMatch} seats
       </p>
     </section>
   );

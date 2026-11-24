@@ -103,7 +103,7 @@ export function App() {
   const startLocalHotseat = () => {
     try {
       const match = createFourPlayerMatch({
-        matchId: "local-prototype-1",
+        matchId: "local-table-1",
         players: [
           {
             id: "p1",
@@ -140,7 +140,6 @@ export function App() {
     }
   };
 
-  /** Local verification of tournament phase presets (Steam launch later). */
   const startTournamentPhaseMatch = (request: TournamentPlayRequest) => {
     try {
       const tournament = tournamentStore.getActive();
@@ -174,7 +173,7 @@ export function App() {
       });
       setUi({
         ...initialMatchUiState,
-        statusMessage: `Tournament ${request.matchId} · ${preset.label}. Cash ${preset.startingCash}, figurines ${preset.ownedFigurines} (${preset.startingFigurinePoints} pts). Steam online launch pending App ID.`,
+        statusMessage: `Tournament ${request.matchId} · ${preset.label}. Cash ${preset.startingCash}, figurines ${preset.ownedFigurines} (${preset.startingFigurinePoints} pts).`,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Tournament match error";
@@ -200,7 +199,7 @@ export function App() {
     });
     setUi({
       ...initialMatchUiState,
-      statusMessage: `Solo bot demo ${room.roomId}. Own-board · 3 min turns.`,
+      statusMessage: `Match ${room.roomId}. Own-board view · 3 min turns.`,
     });
   };
 
@@ -612,17 +611,23 @@ export function App() {
   const networked = phase.status === "playing" && phase.mode !== "local";
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell${phase.status === "lobby" ? " app-shell--lobby" : ""}`}>
       <header className="app-header">
         <div className="brand-block">
           <p className="brand-kicker">Four-player street legend</p>
           <h1>
             Back in <span className="brand-mark">century 20</span>
           </h1>
-          <p className="app-subtitle">
-            Four boards. One dark table. Build the street, work the bank, and outplay the
-            others before the century turns.
-          </p>
+          {phase.status === "lobby" ? (
+            <p className="app-subtitle">
+              Pick how you want to sit at the table.
+            </p>
+          ) : (
+            <p className="app-subtitle">
+              Four boards. One dark table. Build the street, work the bank, and outplay the
+              others before the century turns.
+            </p>
+          )}
         </div>
         {phase.status === "playing" && (
           <div className="header-meta">
@@ -633,7 +638,7 @@ export function App() {
               {phase.mode === "room" && phase.roomCode && (
                 <span>· room {phase.roomCode}</span>
               )}
-              {phase.mode === "online" && <span>· bot demo</span>}
+              {phase.mode === "online" && <span>· vs bots</span>}
             </div>
             <div className="bank-chip">
               Bank vault <strong>{phase.match.bankBalance}</strong>
@@ -644,23 +649,30 @@ export function App() {
 
       <main className="app-main" aria-live="polite">
         {phase.status === "lobby" && (
-          <div className="lobby-layout">
-            <TournamentPanel onPlayPhaseMatch={startTournamentPhaseMatch} />
-            <RoomLobbyPanel onMatchStart={startNetworkedRoom} />
-            <MatchmakingPanel onMatchReady={startBotDemo} />
-            <section className="state-panel">
-              <h2>Or play locally</h2>
-              <p className="muted tiny">
-                Hotseat on one machine — all boards visible.
-              </p>
+          <div className="lobby-screen">
+            <section className="lobby-enter" aria-label="Sit down">
+              <div className="lobby-enter-copy">
+                <p className="lobby-enter-kicker">Fastest way in</p>
+                <h2>Local table</h2>
+                <p>
+                  One machine, four seats, full board view — jump straight onto the
+                  dark table.
+                </p>
+              </div>
               <button
                 type="button"
-                className="hud-button primary"
+                className="hud-button primary lobby-enter-cta"
                 onClick={startLocalHotseat}
               >
-                Local table
+                Sit down
               </button>
             </section>
+
+            <div className="lobby-modes">
+              <RoomLobbyPanel onMatchStart={startNetworkedRoom} />
+              <MatchmakingPanel onMatchReady={startBotDemo} />
+              <TournamentPanel onPlayPhaseMatch={startTournamentPhaseMatch} />
+            </div>
           </div>
         )}
 
@@ -751,12 +763,13 @@ export function App() {
       <footer className="app-footer">
         <span>
           {phase.status === "playing" && phase.mode === "room"
-            ? `Lobby ${phase.roomCode}${phase.isHost ? " · host" : ""} · public · no Steam`
+            ? `Room ${phase.roomCode}${phase.isHost ? " · host" : ""}`
             : phase.status === "playing" && phase.mode === "online"
-              ? "Solo bot demo · Steam pending"
-              : "Local / lobby"}{" "}
-          ·{" "}
-          {bridge ? `Desktop ${bridge.appPhase} (${bridge.platform})` : "browser preview"}
+              ? "Practice · vs bots"
+              : phase.status === "playing"
+                ? "Local table"
+                : "Back in century 20"}
+          {bridge ? ` · ${bridge.platform}` : ""}
         </span>
       </footer>
     </div>

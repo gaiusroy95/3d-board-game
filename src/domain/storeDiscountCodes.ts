@@ -31,6 +31,6 @@ export function generateStoreDiscountCode(
     code,
     percentOff: pct,
     createdAtUtc: new Date().toISOString(),
-    note: "Store market discount code — redeem on Steam when published (M5).",
+    note: "25% off store price for other players.",
   };
 }

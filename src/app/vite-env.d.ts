@@ -9,7 +9,7 @@ interface ImportMeta {
 }
 
 interface DesktopBridge {
-  readonly appPhase: "milestone-1-local";
+  readonly appPhase: "desktop";
   readonly platform: string;
 }
 

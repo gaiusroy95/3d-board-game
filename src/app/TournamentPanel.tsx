@@ -119,7 +119,7 @@ function MatchRow({
                   className="hud-button primary compact"
                   onClick={() => onPlay({ matchId: match.id, stageId })}
                 >
-                  Play phase (local)
+                  Play match
                 </button>
               )}
               <button
@@ -130,7 +130,7 @@ function MatchRow({
                   onChanged(r.ok ? r.note : r.reason);
                 }}
               >
-                Record demo winner
+                Record winner
               </button>
             </>
           )}
@@ -145,7 +145,7 @@ export function TournamentPanel({ onPlayPhaseMatch }: TournamentPanelProps) {
   const [name, setName] = useState("Street Cup");
   const [entrantName, setEntrantName] = useState("");
   const [status, setStatus] = useState(
-    "Milestone 4 tournament — players must appear; no-show/late/disconnect = knockout. Steam match launch pending App ID.",
+    "Create a cup, fill the roster, then run the bracket. No-show, late, or disconnect = knockout.",
   );
   const [adminOpen, setAdminOpen] = useState(false);
   const [codes, setCodes] = useState<StoreDiscountCode[]>([]);
@@ -165,12 +165,15 @@ export function TournamentPanel({ onPlayPhaseMatch }: TournamentPanelProps) {
   const schedule = t ? listSchedule(t) : [];
 
   return (
-    <section className="state-panel matchmaking-panel" aria-label="Tournament">
-      <h2>Tournament (Milestone 4)</h2>
-      <p>
-        Admin-managed <strong>64 → 16 → 4 → 1</strong>. Public bracket &amp; schedule.
-        Live Steam matches wait for App ID — use <strong>Play phase (local)</strong> to
-        verify round presets, or record demo winners to advance the bracket.
+    <section
+      className={`state-panel lobby-card matchmaking-panel${t ? " lobby-card--wide" : ""}`}
+      aria-label="Tournament"
+    >
+      <p className="lobby-card-kicker">Competition</p>
+      <h2>Tournament</h2>
+      <p className="lobby-card-lead">
+        Admin-run bracket <strong>64 → 16 → 4 → 1</strong> with public schedule and
+        standings.
       </p>
       <p className="muted tiny">{status}</p>
 
@@ -242,28 +245,37 @@ export function TournamentPanel({ onPlayPhaseMatch }: TournamentPanelProps) {
           )}
 
           <h3 className="muted tiny">Bracket</h3>
-          {t.stages.map((stage) => (
-            <div key={stage.id} style={{ marginBottom: "0.75rem" }}>
-              <p className="ledger-sub">
-                {stageLabel(stage.id)} — {stage.phaseSettings.label}
-              </p>
-              <p className="muted tiny">{stage.phaseSettings.notes}</p>
-              <ul className="loan-list">
-                {stage.matches.map((m) => (
-                  <MatchRow
-                    key={m.id}
-                    match={m}
-                    stageId={stage.id}
-                    admin={adminOpen}
-                    onChanged={(note) => refresh(note)}
-                    {...(onPlayPhaseMatch
-                      ? { onPlay: onPlayPhaseMatch }
-                      : {})}
-                  />
-                ))}
-              </ul>
-            </div>
-          ))}
+          {t.stages.map((stage) => {
+            const seated = stage.matches.some((m) => m.participants.length > 0);
+            return (
+              <div key={stage.id} className="lobby-bracket-stage">
+                <p className="ledger-sub">
+                  {stageLabel(stage.id)} — {stage.phaseSettings.label}
+                </p>
+                <p className="muted tiny">{stage.phaseSettings.notes}</p>
+                {!seated ? (
+                  <p className="muted tiny lobby-bracket-empty">
+                    {stage.matchCount} matches · seats fill when the stage starts
+                  </p>
+                ) : (
+                  <ul className="loan-list">
+                    {stage.matches.map((m) => (
+                      <MatchRow
+                        key={m.id}
+                        match={m}
+                        stageId={stage.id}
+                        admin={adminOpen}
+                        onChanged={(note) => refresh(note)}
+                        {...(onPlayPhaseMatch
+                          ? { onPlay: onPlayPhaseMatch }
+                          : {})}
+                      />
+                    ))}
+                  </ul>
+                )}
+              </div>
+            );
+          })}
 
           <button
             type="button"
@@ -276,9 +288,8 @@ export function TournamentPanel({ onPlayPhaseMatch }: TournamentPanelProps) {
           {adminOpen && (
             <div className="pending-card" style={{ marginTop: "0.75rem" }}>
               <p className="muted tiny">
-                Admin tools (Steam login later). One tournament only; no pause/cancel.
-                Results cannot be overridden. Players must appear — no-show/late/disconnect
-                = knockout (KO buttons on each match).
+                One cup at a time. No pause or cancel. Results lock once recorded.
+                No-show / late / disconnect = knockout (use KO on each match).
               </p>
 
               {(t.status === "registration" || t.status === "ready") && (
@@ -315,7 +326,7 @@ export function TournamentPanel({ onPlayPhaseMatch }: TournamentPanelProps) {
                         refresh(r.ok ? r.note : r.reason);
                       }}
                     >
-                      Fill to 64 (demo)
+                      Fill to 64
                     </button>
                   </div>
                   <button
@@ -336,7 +347,7 @@ export function TournamentPanel({ onPlayPhaseMatch }: TournamentPanelProps) {
               <div style={{ marginTop: "0.75rem" }}>
                 <p className="ledger-sub">Store discount codes (−25%)</p>
                 <p className="muted tiny">
-                  Generated for other players’ store price. Steam redeem comes in M5.
+                  Share codes for a 25% store discount.
                 </p>
                 <button
                   type="button"
@@ -368,10 +379,10 @@ export function TournamentPanel({ onPlayPhaseMatch }: TournamentPanelProps) {
                 style={{ marginTop: "0.5rem" }}
                 onClick={() => {
                   tournamentStore.clearDemo();
-                  refresh("Cleared local demo tournament.");
+                  refresh("Tournament cleared.");
                 }}
               >
-                Clear demo tournament
+                Clear tournament
               </button>
             </div>
           )}

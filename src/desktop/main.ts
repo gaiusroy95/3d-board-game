@@ -16,7 +16,7 @@ function createMainWindow(): BrowserWindow {
     minWidth: 960,
     minHeight: 600,
     backgroundColor: "#0a0a0a",
-    title: "Four Player Board — Milestone 1 Prototype",
+    title: "Back in century 20",
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
